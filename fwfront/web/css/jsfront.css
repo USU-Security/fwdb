@@ -1,0 +1,16 @@
+body {
+	background:black;
+	color:white;
+	font-size:80%;
+}
+a {
+	color:#bbbbff;
+	text-decoration:none;
+}
+a:hover {
+	color:#bbbbff;
+	text-decoration:underline;
+}
+tr:nth-child(even){
+	background:#111111;
+}

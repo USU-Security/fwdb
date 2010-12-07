@@ -1,0 +1,31 @@
+<html>
+ <head>
+  <link type="text/css" href="css/custom-theme/jquery-ui-1.8.4.custom.css" rel="stylesheet" />
+  <link type="text/css" href="css/jquery.jnotify.css" rel="stylesheet" />
+  <link type="text/css" href="css/iptfront.css" rel="stylesheet" />
+ </head>
+ <body>
+  object:<input type="textbox" id="objname"></input><br>
+  <button id="queryobj">Query</button><button id="displayobj">Display</button><br>
+  <div id="objdescription"></div>
+
+  <script type="text/javascript" src="js/jquery-1.4.2.min.js"></script>
+  <script type="text/javascript" src="js/jquery-ui-1.8.4.custom.min.js"></script>
+  <script type="text/javascript" src="js/jquery.jnotify.js"></script>
+  <script type="text/javascript" src="js/iptfront.js"></script>
+  <script type="text/javascript">
+   $(function() {
+    $('#queryobj').click(function() {
+	 docall($('#objname').val(), "details", [], function (o) {
+	  $('#objdescription').html(formatobj(o));
+	 });
+	});
+    $('#displayobj').click(function() {
+	 docall($('#objname').val(), "get", [], function (o) {
+	  $('#objdescription').html(formatobj(o));
+	 });
+	});
+   });
+  </script>
+ </body>
+</html>
