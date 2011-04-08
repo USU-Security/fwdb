@@ -92,6 +92,43 @@ def write_stats( iptables_save_file ):
 	iface.execute_insert("INSERT INTO rule_stats(rule,src,dst,packets,bytes) VALUES %s;" % ', '.join(counts) )
 	print "\t\tdone."
 
+def runcmd(s):
+	print s
+	#ret = os.system(s)
+	#if ret != 0:
+	#	raise Exception( "command FAILED: %s" % s )
+
+def update_set(old,new):
+	(remove,add) = old.diff(new)
+	for a in add:
+		runcmd(db.IPSET_ADD % (new.name, a))
+	for r in remove:
+		runcmd(db.IPSET_DEL % (new.name, r))
+
+def update_sets( delete=False ):
+	oldcfg = db.ipset_list(load_file=None)
+	newcfg = iface.get_ipset()
+
+	old_sets = set(oldcfg.sets)
+	new_sets = set(newcfg.sets)
+
+	add_sets = new_sets.difference(old_sets)
+	
+	for i in add_sets:
+		runcmd(db.IPSET_CREATE % (i,newcfg.set_members[i].set_type))
+	del_sets = old_sets.difference(new_sets)
+	
+	if delete:
+		for i in del_sets:
+			runcmd(db.IPSET_DESTROY % i)
+	
+	for name in new_sets:
+		if name in old_sets.set_members:
+			update_set(old_sets[name], new_sets[name])
+		else:
+			update_set(db.ipset(), new_sets[name])
+
+
 def main():
 	global iface
 	for i in [scriptdir, backupdir, tmpdir,]:
@@ -106,6 +143,9 @@ def main():
 	failedname="%s/failed-%s" % (backupdir, suffix)
 	ipt_tmp_store="%s/iptables-store_%s" % (tmpdir, suffix)
 	ipt_store="%s/iptables.save-current" % scriptdir
+
+	print "updating sets:"
+	update_sets()
 
 	print "generating ruleset:"
 	new = open(tmpfile,'w')
@@ -252,6 +292,10 @@ def main():
 			exit(1)
 
 	del iface
+
+	print "Final ipset update:"
+	update_sets()
+	print "done."
 
 if __name__ == '__main__':
 	main()
