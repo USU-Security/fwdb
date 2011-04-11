@@ -127,13 +127,11 @@ class db(object):
 
 		|| CASE WHEN proto.name IS NOT NULL then ' -p ' || proto.name ELSE '' END
 		|| CASE WHEN src.host_end IS NOT NULL OR dst.host_end IS NOT NULL THEN ' -m iprange' ELSE '' END
-		|| CASE WHEN src.is_group OR dst.is_group THEN ' -m set' ELSE '' END
-
-		|| CASE WHEN src.is_group IS NOT NULL AND src.is_group THEN ' --match-set ' || src.name || ' src' ELSE '' END
+		|| CASE WHEN src.is_group IS NOT NULL AND src.is_group THEN ' -m set --match-set ' || src.name || ' src' ELSE '' END
 		|| CASE WHEN src.host_end IS NOT NULL THEN ' --src-range ' || host(src.host) || '-' || host(src.host_end) WHEN src.host IS NOT NULL then ' -s ' || src.host ELSE '' END
 		|| CASE WHEN sport.endport IS NOT NULL then ' --sport ' || sport.port||':'||sport.endport WHEN sport.port IS NOT NULL then ' --sport ' || sport.port ELSE '' END
 		
-		|| CASE WHEN dst.is_group IS NOT NULL AND dst.is_group THEN ' --match-set ' || dst.name || ' dst' ELSE '' END
+		|| CASE WHEN dst.is_group IS NOT NULL AND dst.is_group THEN ' -m set --match-set ' || dst.name || ' dst' ELSE '' END
 		|| CASE WHEN dst.host_end IS NOT NULL THEN ' --dst-range ' || host(dst.host) || '-' || host(dst.host_end) WHEN dst.host IS NOT NULL then ' -d '||dst.host ELSE '' END
 		|| CASE WHEN dport.endport IS NOT NULL then ' --dport '||dport.port||':'||dport.endport WHEN dport.port IS NOT NULL then ' --dport '||dport.port ELSE '' END
 		
@@ -168,13 +166,18 @@ class db(object):
 	rule_order = 'ORDER BY CASE WHEN chain.builtin = TRUE THEN 1 ELSE 0 END,chain.name,rules.ord,rules.id,src.host,dst.host'
 	#rule_valid_where="""(if_in.firewall_id = '$firewall_id' OR if_in.firewall_id IS NULL) AND (if_out.firewall_id = '$firewall_id' OR if_out.firewall_id IS NULL )"""
 
-	def __init__( self, db=None ):
+	def __init__( self, db=None, fw=None ):
 		if not db:
 			db="dbname='fwdb' user='esk'"
 		self.__conn = psycopg2.connect(db)
 		self.__curs = self.__conn.cursor()
 		# FIXME!
 		self.uid=1
+		self.fw = None
+		if fw:
+			r = self.execute_query("select id from firewalls where name = %s", [fw])
+			if r:
+				self.fw = r[0][0]
 	def __del__( self ):
 		self.__conn.close()
 
@@ -618,6 +621,16 @@ class db(object):
 		whereclause = None
 		sets = ipset_list()
 		whereclause = {'groups.is_group': True}
+		if self.fw:
+			valid_chains = self.get_fw_chains()
+			chain_patterns_where = " (chain in ("+",".join(map(str, valid_chains))+")) "
+			valid_hosts = set()
+			for src, dst in self.execute_query("select src, dst from rules where %s"%chain_patterns_where):
+				if src:
+					valid_hosts.add(src)
+				if dst:
+					valid_hosts.add(dst)
+			whereclause['groups.id'] = list(valid_hosts)
 		if group:
 			whereclause['h2g.gid'] = int(group)
 		data = self.get_dict( from_def, ['groups.name', 'groups.id', 'hosts.name', 'hosts.id', 'hosts.host', 'hosts.host_end',],
@@ -626,6 +639,31 @@ class db(object):
 			sets.add(d['groups.name'],d['hosts.host'],d['hosts.host_end'])
 
 		return sets
+	def get_fw_chains(self):
+		patterns = self.execute_query("select c.pattern from chain_patterns as c JOIN firewalls_to_chain_patterns AS f2c ON f2c.pat = c.id WHERE f2c.fw = %s;", [self.fw])
+		chain_patterns_where = "(chain.builtin=true OR "+" OR ".join(["chain.name LIKE '%s'"%i[0] for i in patterns])+")"
+		rule_tree = {}
+		#get a list of all the rules that could apply to us
+		for c, t in self.execute_query("select r.chain,r.target from rules as r left join real_interfaces as i on r.if_in=i.pseudo left join real_interfaces as i2 on r.if_out=i2.pseudo where i.firewall_id is null and i2.firewall_id is null or (i.firewall_id = %s or i2.firewall_id=%s) group by chain, target;", [self.fw, self.fw]):
+			if c not in rule_tree:
+				rule_tree[c] = set()
+			rule_tree[c].add(t)
+		ret = set()
+		def walkrules(r):
+			for i in rule_tree.get(r, set()).difference(ret):
+				ret.add(i)
+				walkrules(i)
+		for i, in self.execute_query("select id from chains as chain where %s"%chain_patterns_where):
+			if i not in ret:
+				walkrules(i)
+				ret.add(i)
+		return ret
+				
+
+
+
+
+
 
 class ipset(object):
 	def __init__(self, name, set_type=None):
@@ -699,6 +737,8 @@ class ipset_list(object):
 		self.set_members = {}
 		if load_file != False:
 			self.load_file(load_file)
+	def __getitem__(self, k):
+		return self.set_members[k]
 	def load_file(self, filename=None, chain=None):
 		if chain is None:
 			chain = ':all:'
