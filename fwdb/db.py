@@ -2,6 +2,11 @@ import types
 import psycopg2
 import re
 
+import datetime
+import os
+
+import IPy
+
 # NOTE: endlines should never be allowed anywhere
 valid = re.compile( r"^[a-zA-Z0-9 '!/@.,%\"=?\n<>()\\:#|_$\t-]+$" )
 #address = re.compile( r"^([0-9]{1,3}\.){,3}[0-9]{1,3}(/[1-3]?[0-9])?$" )
@@ -12,6 +17,13 @@ table_re = re.compile(r"^[a-z_]+$")
 numeric = re.compile( r"^[0-9]+$" )
 
 _default = object()
+
+IPSET_ADD = "ipset -A %s %s"
+IPSET_DEL = "ipset -D %s %s"
+
+IPSET_CREATE = "ipset -N %s %s --probes 4 --resize 100"
+IPSET_DESTROY = "ipset -X %s"
+
 
 def check_table_name(v):
 	if table_re.match(v):
@@ -85,11 +97,9 @@ class db(object):
 		LEFT OUTER JOIN users AS for_user ON rules.created_for = for_user.id
 		LEFT OUTER JOIN tables AS tbl ON tbl.id = chain.tbl
 		LEFT OUTER JOIN protos AS proto ON proto.id=rules.proto
-		LEFT OUTER JOIN hosts_to_groups AS sh2g ON sh2g.gid = rules.src
-		LEFT OUTER JOIN hosts AS src ON src.id = sh2g.hid
+		LEFT OUTER JOIN hosts AS src ON src.id = rules.src
 		LEFT OUTER JOIN ports AS sport ON sport.id = rules.sport
-		LEFT OUTER JOIN hosts_to_groups AS dh2g ON dh2g.gid = rules.dst
-		LEFT OUTER JOIN hosts AS dst ON dst.id = dh2g.hid
+		LEFT OUTER JOIN hosts AS dst ON dst.id = rules.dst
 		LEFT OUTER JOIN ports AS dport ON dport.id=rules.dport
 		LEFT OUTER JOIN chains AS target ON target.id = rules.target
 		LEFT OUTER JOIN interfaces AS pseudo_if_in ON pseudo_if_in.id = rules.if_in
@@ -103,18 +113,34 @@ class db(object):
 			SUM(CASE WHEN time > NOW() - INTERVAL '1 months' THEN packets ELSE 0 END) AS packets1
 			FROM rule_stats GROUP BY rule) AS usage"""
 	rule_enabled_fmt="""CASE WHEN rules.enabled = FALSE THEN '#:disabled: ' ELSE '' END
-			|| CASE WHEN rules.expires < NOW() then '#:expired: ' ELSE '' END
-			|| CASE WHEN rules.src IS NOT NULL and sh2g.gid IS NULL OR
-			             rules.dst IS NOT NULL and dh2g.gid IS NULL THEN '#:broken_group: ' ELSE '' END\n"""
+			|| CASE WHEN rules.expires < NOW() then '#:expired: ' ELSE '' END\n"""
 	rule_comment_fmt="""'# id:' || rules.id || ' ord:' || ord
-		|| CASE WHEN sh2g.gid != sh2g.hid then ' from group:' || (SELECT name FROM hosts WHERE id=sh2g.gid) ELSE '' END
-		|| CASE WHEN src.name IS NOT NULL then ' from ' || src.name ELSE '' END
-		|| CASE WHEN dh2g.gid != dh2g.hid then ' to group:' || (SELECT name FROM hosts WHERE id=dh2g.gid) ELSE '' END
-		|| CASE WHEN dst.name IS NOT NULL then ' to ' || dst.name ELSE '' END
+		|| CASE WHEN src.name IS NOT NULL THEN CASE WHEN src.is_group THEN ' from group: ' ELSE ' from ' END || src.name ELSE '' END
+		|| CASE WHEN dst.name IS NOT NULL THEN CASE WHEN dst.is_group THEN ' from group: ' ELSE ' from ' END || dst.name ELSE '' END
 		|| CASE WHEN for_user.name IS NOT NULL then ' for ' || for_user.name ELSE '' END
 		|| CASE WHEN rules.description IS NOT NULL then ' - ' || rules.description ELSE '' END 
 		|| CASE WHEN rules.expires IS NOT NULL then ' -- EXP:' || to_char(rules.expires, 'YYYY-MM-DD') ELSE '' END || E'\\n'\n"""
-	rule_args_fmt = """'-A '||chain.name
+
+	rule_base_fmt = """''
+		%s
+		||' -A '||chain.name
+
+		|| CASE WHEN proto.name IS NOT NULL then ' -p ' || proto.name ELSE '' END
+		|| CASE WHEN src.host_end IS NOT NULL OR dst.host_end IS NOT NULL THEN ' -m iprange' ELSE '' END
+		|| CASE WHEN src.is_group IS NOT NULL AND src.is_group THEN ' -m set --match-set ' || src.name || ' src' ELSE '' END
+		|| CASE WHEN src.host_end IS NOT NULL THEN ' --src-range ' || host(src.host) || '-' || host(src.host_end) WHEN src.host IS NOT NULL then ' -s ' || src.host ELSE '' END
+		|| CASE WHEN sport.endport IS NOT NULL then ' --sport ' || sport.port||':'||sport.endport WHEN sport.port IS NOT NULL then ' --sport ' || sport.port ELSE '' END
+		
+		|| CASE WHEN dst.is_group IS NOT NULL AND dst.is_group THEN ' -m set --match-set ' || dst.name || ' dst' ELSE '' END
+		|| CASE WHEN dst.host_end IS NOT NULL THEN ' --dst-range ' || host(dst.host) || '-' || host(dst.host_end) WHEN dst.host IS NOT NULL then ' -d '||dst.host ELSE '' END
+		|| CASE WHEN dport.endport IS NOT NULL then ' --dport '||dport.port||':'||dport.endport WHEN dport.port IS NOT NULL then ' --dport '||dport.port ELSE '' END
+		
+		|| ' -j '||target.name
+		|| CASE WHEN rules.additional IS NOT NULL THEN ' '||rules.additional ELSE '' END
+		|| ' -m comment --comment "id:' || rules.id || ' src:' || COALESCE(src.id::VARCHAR,'NULL') || ' dst:' || COALESCE(dst.id::VARCHAR,'NULL') || '"'
+		|| E'\\n'
+	"""
+	rule_args_fmt = rule_base_fmt % """
 		|| CASE WHEN rules.if_in IS NOT NULL then
 			CASE WHEN if_in.is_bridged THEN ' -m physdev --physdev-in ' || if_in.name
 			ELSE ' -i '||if_in.name END
@@ -123,19 +149,9 @@ class db(object):
 			CASE WHEN if_out.is_bridged THEN ' -m physdev --physdev-out ' || if_out.name
 			ELSE ' -o '||if_out.name END
 		ELSE '' END
-		|| CASE WHEN proto.name IS NOT NULL then ' -p ' || proto.name ELSE '' END
-		|| CASE WHEN src.host_end IS NOT NULL OR dst.host_end IS NOT NULL THEN ' -m iprange ' ELSE '' END
-		|| CASE WHEN src.host_end IS NOT NULL THEN ' --src-range ' || host(src.host) || '-' || host(src.host_end) WHEN src.host IS NOT NULL then ' -s ' || src.host ELSE '' END
-		|| CASE WHEN sport.endport IS NOT NULL then ' --sport ' || sport.port||':'||sport.endport WHEN sport.port IS NOT NULL then ' --sport ' || sport.port ELSE '' END
-		|| CASE WHEN dst.host_end IS NOT NULL THEN ' --dst-range ' || host(dst.host) || '-' || host(dst.host_end) WHEN dst.host IS NOT NULL then ' -d '||dst.host ELSE '' END
-		|| CASE WHEN dport.endport IS NOT NULL then ' --dport '||dport.port||':'||dport.endport WHEN dport.port IS NOT NULL then ' --dport '||dport.port ELSE '' END
-		|| ' -j '||target.name
-		|| CASE WHEN rules.additional IS NOT NULL THEN ' '||rules.additional ELSE '' END
-		|| ' -m comment --comment "id:' || rules.id || ' src:' || COALESCE(src.id::VARCHAR,'NULL') || ' dst:' || COALESCE(dst.id::VARCHAR,'NULL') || '"'
-		|| E'\\n'
 		"""
 	rule_cmd_fmt="""'%s -t ' || tbl.name || ' ' ||\n""" + rule_args_fmt
-	rule_noiface_fmt="""''
+	rule_noiface_fmt = rule_base_fmt % """
 		|| CASE WHEN rules.if_in IS NOT NULL then
 			'<iface_in:'||pseudo_if_in.name||'> '
 		ELSE '' END
@@ -143,16 +159,6 @@ class db(object):
 			'<iface_out:'||pseudo_if_out.name||'> '
 		ELSE '' END
 		|| '%s -t ' || tbl.name 
-		|| ' -A '||chain.name
-		|| CASE WHEN proto.name IS NOT NULL then ' -p ' || proto.name ELSE '' END
-		|| CASE WHEN src.host_end IS NOT NULL OR dst.host_end IS NOT NULL THEN ' -m iprange ' ELSE '' END
-		|| CASE WHEN src.host_end IS NOT NULL THEN ' --src-range ' || host(src.host) || '-' || host(src.host_end) WHEN src.host IS NOT NULL then ' -s ' || src.host ELSE '' END
-		|| CASE WHEN sport.endport IS NOT NULL then ' --sport ' || sport.port||':'||sport.endport WHEN sport.port IS NOT NULL then ' --sport ' || sport.port ELSE '' END
-		|| CASE WHEN dst.host_end IS NOT NULL THEN ' --dst-range ' || host(dst.host) || '-' || host(dst.host_end) WHEN dst.host IS NOT NULL then ' -d '||dst.host ELSE '' END
-		|| CASE WHEN dport.endport IS NOT NULL then ' --dport '||dport.port||':'||dport.endport WHEN dport.port IS NOT NULL then ' --dport '||dport.port ELSE '' END
-		|| ' -j '||target.name
-		|| CASE WHEN rules.additional IS NOT NULL THEN ' '||rules.additional ELSE '' END
-		|| E'\\n'
 		"""
 	rule_restore_fmt = ' || '.join([ rule_enabled_fmt, rule_comment_fmt, rule_enabled_fmt, rule_args_fmt ])
 	rule_full_fmt = ' || '.join([ rule_enabled_fmt, rule_comment_fmt, rule_enabled_fmt, rule_cmd_fmt ])
@@ -160,13 +166,18 @@ class db(object):
 	rule_order = 'ORDER BY CASE WHEN chain.builtin = TRUE THEN 1 ELSE 0 END,chain.name,rules.ord,rules.id,src.host,dst.host'
 	#rule_valid_where="""(if_in.firewall_id = '$firewall_id' OR if_in.firewall_id IS NULL) AND (if_out.firewall_id = '$firewall_id' OR if_out.firewall_id IS NULL )"""
 
-	def __init__( self, db=None ):
+	def __init__( self, db=None, fw=None ):
 		if not db:
 			db="dbname='fwdb' user='esk'"
 		self.__conn = psycopg2.connect(db)
 		self.__curs = self.__conn.cursor()
 		# FIXME!
 		self.uid=1
+		self.fw = None
+		if fw:
+			r = self.execute_query("select id from firewalls where name = %s", [fw])
+			if r:
+				self.fw = r[0][0]
 	def __del__( self ):
 		self.__conn.close()
 
@@ -243,14 +254,18 @@ class db(object):
 				where_items.append("%s = '%s'" % (i,str(v)) )
 		return where_items
 	
-	def get_dict( self, table, columns, d=None, conj = ' AND ' ):
+	def get_dict( self, table, columns, d=None, conj = ' AND ', order_by=None ):
 		where_items=[]
 		if d:
-			sql = 'SELECT %s FROM %s WHERE %s;' % (','.join(columns), table, conj.join(self.get_where(d)))
+			sql = 'SELECT %s FROM %s WHERE %s' % (','.join(columns), table, conj.join(self.get_where(d)))
 		else:
-			sql = 'SELECT %s FROM %s;' % (','.join(columns), table)
+			sql = 'SELECT %s FROM %s' % (','.join(columns), table)
+
+		if order_by is not None:
+			sql = "%s ORDER BY %s" % (sql, order_by)
 
 		data=self.execute_query( sql )
+
 		final = []
 		for d in data:
 			item={}
@@ -443,9 +458,44 @@ class db(object):
 			self.add_dict( 'hosts', host )
 
 	def add_host_to_group( self, group_id, host_id=None, hostname=None ):
+		host = get_host(host_id = host_id, hostname = hostname)
 		if not host_id:
-			host_id = self.get_id_byname( 'hosts', hostname )
+			host_id = host['id']
+		if IPy.IP(host['host']).len() == 1:
+			d = get_table('hosts_to_groups as h2g join hosts on h2g.hid = hosts.id',['hosts.host','hosts.endhost'],
+					'h2g.gid = %s and masklen(hosts.host) < 32')
+		else:
+			d = get_table('hosts_to_groups as h2g join hosts on h2g.hid = hosts.id',['hosts.host','hosts.endhost'],
+					'h2g.gid = %s and masklen(hosts.host) = 32')
+		if d:
+			raise Exception("Cannot mix hosts and networks: gid: %s, host: %s, existing: %s" % (gid, host, d) )
+
 		self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,} )
+			
+		"""# I decided to put this off until someone actually needs it; will need to fix del_h2g, too
+		self.begin_transaction()
+		try:
+			group = self.get_dict( 'hosts', ['id','is_host'], whereclause={'id': group_id} )
+			if len(group) != 1:
+				raise Exception('non-unique or non-existent group: %s' % group_id)
+			group = group[0]
+			if not host_id:
+				host_id = self.get_id_byname( 'hosts', hostname )
+			
+			host = self.get_table( 'hosts', ['id','host'], whereclause='id = %d' % host_id )
+			is_net = IPy.IP(host[0][1]).len() > 1
+
+			if is_net and not group['is_host'] & NET_BIT:
+				group['is_host'] &= NET_BIT
+				self.add_dict('hosts', group, update=True)
+			elif not is_net and not group['is_host'] & HOST_BIT:
+				group['is_host'] &= HOST_BIT
+				self.add_dict('hosts', group, update=True)
+
+			self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,} )
+		finally:
+			self.end_transaction()
+		"""
 
 	def del_host_to_group( self, group_id, host_id=None, hostname=None ):
 		if not host_id:
@@ -564,5 +614,185 @@ class db(object):
 				value_lst.append('%s = %s' % (i,v) )
 		value_stmt = ' AND '.join(value_lst)
 		sql = 'SELECT %s FROM %s WHERE %s' % (','.join(columns),tblname,value_stmt)
+	def get_ipset(self, group=None):
+		from_def = """hosts_to_groups as h2g
+				join hosts as groups on groups.id = h2g.gid
+				join hosts on h2g.hid = hosts.id"""
+		whereclause = None
+		sets = ipset_list()
+		whereclause = {'groups.is_group': True}
+		if self.fw:
+			valid_chains = self.get_fw_chains()
+			chain_patterns_where = " (chain in ("+",".join(map(str, valid_chains))+")) "
+			valid_hosts = set()
+			for src, dst in self.execute_query("select src, dst from rules where %s"%chain_patterns_where):
+				if src:
+					valid_hosts.add(src)
+				if dst:
+					valid_hosts.add(dst)
+			whereclause['groups.id'] = list(valid_hosts)
+		if group:
+			whereclause['h2g.gid'] = int(group)
+		data = self.get_dict( from_def, ['groups.name', 'groups.id', 'hosts.name', 'hosts.id', 'hosts.host', 'hosts.host_end',],
+				whereclause, order_by='groups.name, hosts.id' )
+		for d in data:
+			sets.add(d['groups.name'],d['hosts.host'],d['hosts.host_end'])
 
+		return sets
+	def get_fw_chains(self):
+		patterns = self.execute_query("select c.pattern from chain_patterns as c JOIN firewalls_to_chain_patterns AS f2c ON f2c.pat = c.id WHERE f2c.fw = %s;", [self.fw])
+		chain_patterns_where = "(chain.builtin=true OR "+" OR ".join(["chain.name LIKE '%s'"%i[0] for i in patterns])+")"
+		rule_tree = {}
+		#get a list of all the rules that could apply to us
+		for c, t in self.execute_query("select r.chain,r.target from rules as r left join real_interfaces as i on r.if_in=i.pseudo left join real_interfaces as i2 on r.if_out=i2.pseudo where i.firewall_id is null and i2.firewall_id is null or (i.firewall_id = %s or i2.firewall_id=%s) group by chain, target;", [self.fw, self.fw]):
+			if c not in rule_tree:
+				rule_tree[c] = set()
+			rule_tree[c].add(t)
+		ret = set()
+		def walkrules(r):
+			for i in rule_tree.get(r, set()).difference(ret):
+				ret.add(i)
+				walkrules(i)
+		for i, in self.execute_query("select id from chains as chain where %s"%chain_patterns_where):
+			if i not in ret:
+				walkrules(i)
+				ret.add(i)
+		return ret
+				
+
+
+
+
+
+
+class ipset(object):
+	def __init__(self, name, set_type=None):
+		self.name = name
+		self.set_type = set_type
+		self.hosts = set()
+		self.nets = set()
+	def diff(self, s):
+		# return (remove, add) to turn self into s
+		if (self.hosts and  s.nets) or (self.nets and s.hosts):
+			raise Exception("Cannot mix hosts and networks, sorry.")
+		if (self.set_type and s.set_type and self.set_type != s.set_type):
+			raise Exception("Cannot change set types.")
+
+		if self.hosts:
+			remove = self.hosts.difference(s.hosts)
+			add = s.hosts.difference(self.hosts)
+		elif self.nets:
+			remove = self.nets.difference(s.nets)
+			add = s.nets.difference(self.nets)
+		else:
+			remove = set()
+			if s.hosts:
+				add = s.hosts.copy()
+			else:
+				add = s.nets.copy()
+		return (remove, add)
+	def add(self, address):
+		address = IPy.IP(address)
+		if address.len() == 1:
+			if self.nets:
+				raise Exception("Cannot mix hosts and networks! ipset: %s, adding: %s" % (self.name,address))
+			self.hosts.add(address)
+		else:
+			if self.hosts:
+				raise Exception("Cannot mix hosts and networks! ipset: %s, adding: %s" % (self.name,address))
+			self.nets.add(address)
+	def __str__(self):
+		return self.as_string()
+	def as_string(self, name_suffix=None):
+		name = self.name
+		if name_suffix:
+			name += name_suffix
+		if self.hosts and self.nets:
+			print "WARNING: set: %s hosts: %s nets: %s" % (self.name,self.hosts,self.nets)
+			raise Exception("""You did something naughty -- you shouldn't be
+				able to get hosts and networks in the same set (%s)""" % self.name)
+
+		result = []
+		hashsize=1024
+
+		result.append("# Created by fwdb on %s" % str(datetime.datetime.now()) )
+
+		if self.hosts:
+			while len(self.hosts) > hashsize/2: # the hash is half full
+				hashsize *= 2
+			result.append("-N %s iphash --hashsize %d --probes 4 --resize 100" % (name, hashsize))
+			for host in self.hosts:
+				result.append("-A %s %s" % (name,str(host)))
+		if self.nets:
+			while len(self.nets) > hashsize/2: # the hash is half full
+				hashsize *= 2
+			result.append("-N %s nethash --hashsize %d --probes 4 --resize 100" % (name, hashsize))
+			for net in self.nets:
+				result.append("-A %s %s" % (name,str(net)))
+		return '\n'.join(result)
+
+class ipset_list(object):
+	def __init__(self, load_file=False):
+		self.sets = []
+		self.set_members = {}
+		if load_file != False:
+			self.load_file(load_file)
+	def __getitem__(self, k):
+		return self.set_members[k]
+	def load_file(self, filename=None, chain=None):
+		if chain is None:
+			chain = ':all:'
+
+		if filename:
+			infile = open(filename)
+		else:
+			cmd = "sudo ipset -S " + chain
+			infile = os.popen(cmd)
+
+		for line in infile:
+			if line[0] == '#':
+				continue
+			options = line.split()
+			if options[0] == '-N':
+				assert len(options) >= 3
+				self.add_chain(name=options[1], set_type=options[2])
+			if line[:2] == '-A':
+				assert len(options) == 3
+				self.add(options[1], options[2])
+	
+	def add_chain(self, name, set_type=None):
+		if name in self.set_members:
+			raise Exception("Chain %s already created: %s" % (name,self.set_members[name]))
+		self.set_members[name] = ipset(name, set_type)
+		self.sets.append(name)
+
+	def add(self, set_name, address, end_address=None):
+		address = IPy.IP(address)
+		if set_name not in self.set_members:
+			set_type = 'iphash'
+			if len(address) > 1: # FIXME: technically, an IP object can hold a range
+				set_type = 'nethash'
+			self.add_chain(set_name, set_type)
+			
+		if address.len() == 1:
+			if end_address is None:
+				end_address = address
+			end_address = IPy.IP(address)
+			one = IPy.IP('0.0.0.1')
+			a = IPy.IP(address)
+			while a <= end_address:
+				self.set_members[set_name].add(a)
+				a += one
+		else:
+			if end_address:
+				raise Exception("Range containing a network? %s %s %s" % (set_name, address, end_address))
+			self.set_members[set_name].add(address)
+	def __str__(self):
+		return self.as_string()
+	def as_string(self, name_suffix = None):
+		set_strs = []
+		for k in self.sets:
+			set_strs.append( self.set_members[k].as_string(name_suffix) )
+		set_strs.append("COMMIT\n") # trailing \n is important...
+		return '\n\n'.join(set_strs)
 

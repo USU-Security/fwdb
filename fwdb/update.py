@@ -39,7 +39,7 @@ scriptdir='/root/firewall_scripts'
 backupdir="%s/backups" % scriptdir
 tmpdir="%s/temp" % scriptdir
 
-iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='banfw'")
+iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='banfw'", fw = firewall_id)
 
 def write_stats( iptables_save_file ):
 	print "\t\tgathering statistics..."
@@ -92,6 +92,45 @@ def write_stats( iptables_save_file ):
 	iface.execute_insert("INSERT INTO rule_stats(rule,src,dst,packets,bytes) VALUES %s;" % ', '.join(counts) )
 	print "\t\tdone."
 
+def runcmd(s):
+	print s
+	ret = os.system(s)
+	if ret != 0:
+		raise Exception( "command FAILED: %s" % s )
+
+def update_set(old,new):
+	(remove,add) = old.diff(new)
+	for a in add:
+		runcmd(db.IPSET_ADD % (new.name, a))
+	for r in remove:
+		runcmd(db.IPSET_DEL % (new.name, r))
+
+def update_sets( delete=False ):
+	global iface
+	oldcfg = db.ipset_list(load_file=None)
+	newcfg = iface.get_ipset()
+
+	old_sets = set(oldcfg.sets)
+	new_sets = set(newcfg.sets)
+
+	add_sets = new_sets.difference(old_sets)
+	
+	for i in add_sets:
+		print "creating %s" % i
+		runcmd(db.IPSET_CREATE % (i,newcfg.set_members[i].set_type))
+	del_sets = old_sets.difference(new_sets)
+	
+	if delete:
+		for i in del_sets:
+			runcmd(db.IPSET_DESTROY % i)
+	
+	for name in new_sets:
+		if name in old_sets:
+			update_set(oldcfg[name], newcfg[name])
+		else:
+			update_set(db.ipset(name), newcfg[name])
+
+
 def main():
 	global iface
 	for i in [scriptdir, backupdir, tmpdir,]:
@@ -107,16 +146,15 @@ def main():
 	ipt_tmp_store="%s/iptables-store_%s" % (tmpdir, suffix)
 	ipt_store="%s/iptables.save-current" % scriptdir
 
+	print "updating sets:"
+	update_sets()
+
 	print "generating ruleset:"
 	new = open(tmpfile,'w')
 
-	pat_q = '''SELECT c.pattern FROM chain_patterns AS c
-		JOIN firewalls_to_chain_patterns AS f2c ON f2c.pat = c.id
-		JOIN firewalls AS f ON f2c.fw = f.id
-		WHERE f.name = \'%s\' ''' % firewall_id
+	valid_chains = iface.get_fw_chains()
+	chain_patterns_where = " (chain.id in ("+",".join(map(str, valid_chains))+")) "
 
-	patterns = [ i[0] for i in iface.execute_query(pat_q) ]
-	chain_patterns_where = "(NOT chain.name LIKE '%:%' OR chain.name LIKE'" + "' OR chain.name LIKE '".join(patterns) + "' )"
 
 	tables_q = '''SELECT tables.name,tables.id FROM tables;'''
 	tables = iface.execute_query(tables_q)
@@ -244,6 +282,7 @@ def main():
 				else:
 					print "\t\tiptables-save failed, unable to collect statistics"
 				os.system( 'iptables-save > %s' % ipt_store )
+				print scriptname, oldscript
 				os.rename(scriptname, oldscript)
 				os.rename(tmpfile, scriptname)
 				print '\tdone.'
@@ -251,6 +290,11 @@ def main():
 			print 'NOT updating!'
 			exit(1)
 
+
+	print "Final ipset update:"
+	update_sets()
+	print "done."
+	
 	del iface
 
 if __name__ == '__main__':
