@@ -24,7 +24,8 @@ IPSET_DEL = "ipset -D %s %s"
 IPSET_CREATE = "ipset -N %s %s --probes 4 --resize 100"
 IPSET_DESTROY = "ipset -X %s"
 
-IPSET_SAVE = "ipset -S %s"
+IPSET_SAVE_ALL = "ipset -S"
+IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
 
 def check_table_name(v):
 	if table_re.match(v):
@@ -747,7 +748,7 @@ class ipset_list(object):
 		if filename:
 			infile = open(filename)
 		else:
-			cmd = IPSET_SAVE % chain
+			cmd = IPSET_SAVE_SET % chain
 			infile = os.popen(cmd)
 
 		for line in infile:

@@ -361,14 +361,15 @@ class FirewallCmd( cmd.Cmd ):
 				self.iface.del_table('ports',where)
 
 		if subcmd == 'rule':
-			subarg = int(subarg)
+			subarg = map(int, subarg.split())
+			#subarg = int(subarg)
 			rules = self.iface.get_rules( id=subarg, show_usage=True )
 			if not rules:
 				print 'No match'
 				return
 			print '\n'.join( [i[0] for i in rules] )
 			if self.get_bool_from_user('Delete rule'):
-				where = 'rules.id = %d' % subarg
+				where = ' AND '.join(self.iface.get_where({ 'rules.id': subarg }))
 				self.iface.del_table('rules',where)
 		
 	def do_disable( self, arg ):

@@ -98,38 +98,65 @@ def runcmd(s):
 	if ret != 0:
 		raise Exception( "command FAILED: %s" % s )
 
-def update_set(old,new):
+def update_set(old,new, outfile=None):
 	(remove,add) = old.diff(new)
 	for a in add:
-		runcmd(db.IPSET_ADD % (new.name, a))
+		cmd = db.IPSET_ADD % (new.name, a)
+		if not outfile:
+			runcmd(cmd)
+		else:
+			outfile.write(cmd)
+			outfile.write('\n')
+
 	for r in remove:
-		runcmd(db.IPSET_DEL % (new.name, r))
+		cmd = db.IPSET_DEL % (new.name, r)
+		if not outfile:
+			runcmd(cmd)
+		else:
+			outfile.write(cmd)
+			outfile.write('\n')
 
-def update_sets( delete=False ):
+def update_sets( delete=False, oldcfg=None, newcfg=None, outfile=None ):
 	global iface
-	oldcfg = db.ipset_list(load_file=None)
-	newcfg = iface.get_ipset()
+	if oldcfg is None: oldcfg = db.ipset_list(load_file=None)
+	if newcfg is None: newcfg = iface.get_ipset()
 
-	old_sets = set(oldcfg.sets)
-	new_sets = set(newcfg.sets)
+	old_set_names = set(oldcfg.sets)
+	new_set_names = set(newcfg.sets)
 
-	add_sets = new_sets.difference(old_sets)
+	add_set_names = new_set_names.difference(old_set_names)
 	
-	for i in add_sets:
+	for i in add_set_names:
 		print "creating %s" % i
-		runcmd(db.IPSET_CREATE % (i,newcfg.set_members[i].set_type))
-	del_sets = old_sets.difference(new_sets)
+		cmd = db.IPSET_CREATE % (i,newcfg.set_members[i].set_type)
+		if not outfile:
+			runcmd(cmd)
+		else:
+			outfile.write(cmd)
+			outfile.write('\n')
+	del_set_names = old_set_names.difference(new_set_names)
 	
 	if delete:
 		for i in del_sets:
-			runcmd(db.IPSET_DESTROY % i)
+			cmd = db.IPSET_DESTROY % i
+			if not outfile:
+				runcmd(cmd)
+			else:
+				outfile.write(cmd)
+				outfile.write('\n')
 	
 	for name in new_sets:
 		if name in old_sets:
-			update_set(oldcfg[name], newcfg[name])
+			update_set(oldcfg[name], newcfg[name], outfile)
 		else:
-			update_set(db.ipset(name), newcfg[name])
+			update_set(db.ipset(name), newcfg[name], outfile)
+	
+	return oldcfg, newcfg
 
+def check_dirs( dirs ):
+	for d in dirs:
+		if not os.path.isdir(d):
+			os.makedirs(d)
 
 def main():
 	global iface
@@ -139,22 +166,28 @@ def main():
 
 	suffix = "%s-%s" % (username,DATE)
 
-	scriptname="%s/current" % scriptdir
-	oldscript="%s/pre-%s" % (backupdir,suffix)
+	scriptname="%s/current/iptables" % scriptdir
+	olddir="%s/pre-%s" % (backupdir,suffix)
+	faileddir="%s/failed-%s" % (backupdir, suffix)
 	tmpfile="%s/temp-%s" % (tmpdir, suffix)
-	failedname="%s/failed-%s" % (backupdir, suffix)
+	tmpset="%s/ipset-changes-%s" % (tmpdir, suffix)
 	ipt_tmp_store="%s/iptables-store_%s" % (tmpdir, suffix)
-	ipt_store="%s/iptables.save-current" % scriptdir
 
-	print "updating sets:"
-	update_sets()
+	set_store = "%s/ipset_save" % current_dir
+	ipt_store = "%s/iptables_save" % current_dir
+
+	check_dirs( [ current_dir, backupdir, scriptdir, tmpdir ] )
+
+	print "calculating set changes:"
+	tmpset_f = open(tmpset)
+	oldcfg, newcfg = update_sets( outfile=tmpset_f )
+	tmpset_f.close()
 
 	print "generating ruleset:"
 	new = open(tmpfile,'w')
 
 	valid_chains = iface.get_fw_chains()
 	chain_patterns_where = " (chain.id in ("+",".join(map(str, valid_chains))+")) "
-
 
 	tables_q = '''SELECT tables.name,tables.id FROM tables;'''
 	tables = iface.execute_query(tables_q)
@@ -215,22 +248,18 @@ def main():
 		os.unlink(tmpfile)
 	else:
 		print '\tchanges detected\npdating configuration...'
-		# FIXME: this would be a better way, but there is no way to see if the rules are expiring with this run, or had expired before
-		#expired_rules = iface.get_rules( fw_id=firewall_id, andwhere=chain_patterns_where, expired=True)
-		#if expired_rules:
-		#	expired_rules = [ i[0] for i in expired_rules ]
-			#print '\n'.join(expired_rules)
-		exp_name=tmpdiff_name+'.expiring'
-		os.system('grep "^+#:expired:" %s > %s' % (tmpdiff_name,exp_name) )
-		if os.path.getsize( exp_name ):
-			os.system('[ -x /usr/bin/colordiff ] && CAT=colordiff || CAT=cat; $CAT < %s.expiring | less -XF -R' % (tmpdiff_name,) )
-			x = raw_input('Expire these rules [y/N]: ')
-			if not (x != '' and ( x[0]=='y' or x[0]=='Y' )):
-				print "Not updating due to expired rules."
-				exit(1)
-		else:
-			os.unlink(exp_name)
-		os.system('[ -x /usr/bin/colordiff ] && CAT=colordiff || CAT=cat; $CAT < %s | less -XF -R' % (tmpdiff_name,) )
+		# FIXME: this would be a better way, but there is no way to see
+		# if the rules are expiring with this run, or had expired
+		# before
+		# New approach... You may not update rules if some are expired; you must handle all of the rules externally
+		expired_rules = iface.get_rules( fw_id=firewall_id, andwhere=chain_patterns_where, expired=True, enabled=True )
+
+		if expired_rules:
+			expired_rules = [ i[0] for i in expired_rules ]
+			print '\n'.join(expired_rules)
+			raise Exception("The following expiring rules need to be handled: %s" % " ".join([str(i[1]) for i in expired_rules])) 
+
+		os.system('[ -x /usr/bin/colordiff ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpset, tmpdiff_name,) )
 		x = raw_input('Load new configuration [y/N]: ')
 		if x != '' and ( x[0]=='y' or x[0]=='Y' ):
 			description = raw_input('Please enter a description of your change: ')
@@ -242,15 +271,21 @@ def main():
 					description,
 					'\n\nHere is the diff:\n\n',
 				]
+			
+			tmpset_f = open(tmpset)
+			msg.extend(tmpset_f.readlines())
+			tmpset_f.close()
+
 			tmpdiff = open(tmpdiff_name,'r+')
-			lines = tmpdiff.readlines()
+			msg.extend(tmpdiff.readlines())
 			
 			tmpdiff.seek(0)
-			tmpdiff.writelines(msg + lines)
+			tmpdiff.writelines( msg )
 
 			tmpdiff.seek(0)
 			r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, recipient,], stdin=tmpdiff)
 			tmpdiff.close()
+
 			if r == 0: print "\t\tdone."
 			else: print "\t\tfailed."
 
@@ -292,7 +327,7 @@ def main():
 
 
 	print "Final ipset update:"
-	update_sets()
+	update_sets(newcfg = newcfg, delete=True)
 	print "done."
 	
 	del iface
