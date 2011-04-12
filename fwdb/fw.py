@@ -21,6 +21,7 @@ try:
 	DNS.ParseResolvConf()
 	have_dns = True
 except:
+	print "Failed to import DNS resolving library.  You may want to install python-dns."
 	have_dns = False
 
 
