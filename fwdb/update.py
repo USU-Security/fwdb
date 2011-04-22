@@ -36,8 +36,6 @@ user_string = '%s@%s' % (username, ssh_client)
 #scriptdir='/var/lib/iptables'
 recipient='firewall-admins@lists.usu.edu'
 scriptdir='/root/firewall_scripts'
-backupdir="%s/backups" % scriptdir
-tmpdir="%s/temp" % scriptdir
 
 iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='banfw'", fw = firewall_id)
 
@@ -100,7 +98,9 @@ def runcmd(s):
 
 def update_set(old,new, outfile=None):
 	(remove,add) = old.diff(new)
+	changed = False
 	for a in add:
+		changed = True
 		cmd = db.IPSET_ADD % (new.name, a)
 		if not outfile:
 			runcmd(cmd)
@@ -109,12 +109,15 @@ def update_set(old,new, outfile=None):
 			outfile.write('\n')
 
 	for r in remove:
+		changed = True
 		cmd = db.IPSET_DEL % (new.name, r)
 		if not outfile:
 			runcmd(cmd)
 		else:
 			outfile.write(cmd)
 			outfile.write('\n')
+	
+	return changed
 
 def update_sets( delete=False, oldcfg=None, newcfg=None, outfile=None ):
 	global iface
@@ -137,21 +140,23 @@ def update_sets( delete=False, oldcfg=None, newcfg=None, outfile=None ):
 	del_set_names = old_set_names.difference(new_set_names)
 	
 	if delete:
-		for i in del_sets:
+		for i in del_set_names:
 			cmd = db.IPSET_DESTROY % i
 			if not outfile:
 				runcmd(cmd)
 			else:
 				outfile.write(cmd)
 				outfile.write('\n')
-	
-	for name in new_sets:
-		if name in old_sets:
-			update_set(oldcfg[name], newcfg[name], outfile)
+	changed = False
+	for name in new_set_names:
+		if name in old_set_names:
+			if update_set(oldcfg[name], newcfg[name], outfile):
+				changed=True
 		else:
 			update_set(db.ipset(name), newcfg[name], outfile)
+			changed=True
 	
-	return oldcfg, newcfg
+	return oldcfg, newcfg, changed
 
 def check_dirs( dirs ):
 	for d in dirs:
@@ -160,31 +165,39 @@ def check_dirs( dirs ):
 
 def main():
 	global iface
-	for i in [scriptdir, backupdir, tmpdir,]:
-		pass
-		#[ -f "$i" ] || mkdir -p $i
 
-	suffix = "%s-%s" % (username,DATE)
+	suffix = "%s-%s" % (DATE, username)
 
-	scriptname="%s/current/iptables" % scriptdir
+	backupdir="%s/backups" % scriptdir
+
+	currdir = "%s/current" % scriptdir
+	newdir = "%s/new-%s" % (scriptdir,suffix)
 	olddir="%s/pre-%s" % (backupdir,suffix)
 	faileddir="%s/failed-%s" % (backupdir, suffix)
-	tmpfile="%s/temp-%s" % (tmpdir, suffix)
-	tmpset="%s/ipset-changes-%s" % (tmpdir, suffix)
-	ipt_tmp_store="%s/iptables-store_%s" % (tmpdir, suffix)
 
-	set_store = "%s/ipset_save" % current_dir
-	ipt_store = "%s/iptables_save" % current_dir
+	iptname="%s/iptables.fwdb" % newdir
+	ipsname="%s/ipsets.fwdb" % newdir
 
-	check_dirs( [ current_dir, backupdir, scriptdir, tmpdir ] )
+	curriptname="%s/iptables.fwdb" % currdir
+	curripsname="%s/ipsets.fwdb" % currdir
+
+	mailname="%s/message" % newdir
+
+	tmpiptname="%s/tempipt" % (newdir)
+	tmpsetname="%s/tempset" % (newdir)
+
+	setstore = "%s/ipset.save" % newdir
+	iptstore = "%s/iptables.save" % newdir
+
+	check_dirs( [ currdir, backupdir, scriptdir, newdir, ] )
 
 	print "calculating set changes:"
-	tmpset_f = open(tmpset)
-	oldcfg, newcfg = update_sets( outfile=tmpset_f )
-	tmpset_f.close()
+	tmpset = open(tmpsetname, 'w')
+	oldcfg, newcfg, sets_changed = update_sets( outfile=tmpset )
+	tmpset.close()
 
 	print "generating ruleset:"
-	new = open(tmpfile,'w')
+	new = open(iptname,'w')
 
 	valid_chains = iface.get_fw_chains()
 	chain_patterns_where = " (chain.id in ("+",".join(map(str, valid_chains))+")) "
@@ -234,7 +247,7 @@ def main():
 
 	# FIXME: this is probably bad form
 	#changed = os.system("diff -u '%s' '%s'" % (scriptname, tmpfile))
-	changed = subprocess.call(["/usr/bin/diff", '-u', scriptname, tmpfile,], stdout=tmpdiff)
+	changed = subprocess.call(["/usr/bin/diff", '-u', iptname, curriptname,], stdout=tmpdiff)
 
 	tmpdiff.close()
 
@@ -243,11 +256,11 @@ def main():
 	#	sys.stdout.write(l)
 	#tmpdiff.close()
 
-	if not changed:
+	if not changed or sets_changed:
 		print '\tconfiguration unchanged.'
-		os.unlink(tmpfile)
+		#os.unlink(newdir)
 	else:
-		print '\tchanges detected\npdating configuration...'
+		print '\tchanges detected\nupdating configuration...'
 		# FIXME: this would be a better way, but there is no way to see
 		# if the rules are expiring with this run, or had expired
 		# before
@@ -255,11 +268,16 @@ def main():
 		expired_rules = iface.get_rules( fw_id=firewall_id, andwhere=chain_patterns_where, expired=True, enabled=True )
 
 		if expired_rules:
-			expired_rules = [ i[0] for i in expired_rules ]
-			print '\n'.join(expired_rules)
-			raise Exception("The following expiring rules need to be handled: %s" % " ".join([str(i[1]) for i in expired_rules])) 
+			print "----EXPIRED RULES----"
+			for r in expired_rules:
+				print r[0]
+			print "---------------------"
+			expired_rules = [ i[1] for i in expired_rules ]
+			expired_rules = sorted(list(set(expired_rules)))
+			print '\n'.join(map(str,expired_rules))
+			raise Exception("The following expiring rules need to be handled: %s" % " ".join(map(str,expired_rules)))
 
-		os.system('[ -x /usr/bin/colordiff ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpset, tmpdiff_name,) )
+		os.system('[ -x /usr/bin/colordiff.disabled ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpsetname, tmpdiff_name,) )
 		x = raw_input('Load new configuration [y/N]: ')
 		if x != '' and ( x[0]=='y' or x[0]=='Y' ):
 			description = raw_input('Please enter a description of your change: ')
@@ -272,34 +290,37 @@ def main():
 					'\n\nHere is the diff:\n\n',
 				]
 			
-			tmpset_f = open(tmpset)
-			msg.extend(tmpset_f.readlines())
-			tmpset_f.close()
+			tmpset = open(tmpsetname)
+			msg.extend(tmpset.readlines())
+			tmpset.close()
 
 			tmpdiff = open(tmpdiff_name,'r+')
 			msg.extend(tmpdiff.readlines())
 			
-			tmpdiff.seek(0)
-			tmpdiff.writelines( msg )
+			message = open(mailname,'w+')
+			message.writelines( msg )
 
-			tmpdiff.seek(0)
-			r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, recipient,], stdin=tmpdiff)
-			tmpdiff.close()
+			message.seek(0)
+			r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, recipient,], stdin=message)
+			message.close()
 
 			if r == 0: print "\t\tdone."
 			else: print "\t\tfailed."
 
+			print "ipset update:"
+			update_sets(newcfg = newcfg)
+
 			print '\tloading new rules:'
-			save = os.system( 'iptables-save -c > %s' % ipt_tmp_store )
-			status = os.system( 'iptables-restore < %s' % tmpfile )
+			save = os.system( 'iptables-save -c > %s' % tmpiptname )
+			status = os.system( 'iptables-restore < %s' % iptname )
 			if status:
 				print '\t\tFAILED! -- loading last working ruleset (storing failed set in %s)' % failedname
 				if save:
 					# Save failed! Bad!
-					status = os.system( 'iptables-restore < %s' % scriptname )
+					status = os.system( 'iptables-restore < %s' % previptname )
 				else:
-					status = os.system( 'iptables-restore -c < %s' % ipt_tmp_store )
-				os.rename(tmpfile, failedname)
+					status = os.system( 'iptables-restore -c < %s' % tmpiptname )
+				os.rename(newdir, faileddir)
 				if status:
 					print '\t\tFAILED! -- Firewall is hosed, someone really needs to fix it'
 					print '\t\t!!! flushing all rules !!!'
@@ -308,7 +329,7 @@ def main():
 			else:
 				if not save:
 					try:
-						write_stats(ipt_tmp_store)
+						write_stats(tmpiptname)
 					except Exception, e:
 						# We don't want this to cause
 						#the update to fail
@@ -316,10 +337,10 @@ def main():
 						print '\t\tFailed to store statistics.'
 				else:
 					print "\t\tiptables-save failed, unable to collect statistics"
-				os.system( 'iptables-save > %s' % ipt_store )
-				print scriptname, oldscript
-				os.rename(scriptname, oldscript)
-				os.rename(tmpfile, scriptname)
+				os.system( 'iptables-save > %s' % iptstore )
+				print newdir, olddir
+				os.rename(currdir, olddir)
+				os.rename(newdir, currdir)
 				print '\tdone.'
 		else:
 			print 'NOT updating!'

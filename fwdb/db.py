@@ -321,7 +321,7 @@ class db(object):
 
 	def get_rules( self, host=None, port=None, src=None, sport=None, dst=None, dport=None, chain=None, id=None,
 			iptables='iptables', ipt_restore=False, table=False, target=None, fw_id=None, andwhere=None,
-			expired=None, show_usage=False ):
+			expired=None, show_usage=False, enabled=None ):
 		where_items = []
 		if ipt_restore:
 			use_fmt = self.rule_restore_fmt
@@ -351,6 +351,8 @@ class db(object):
 			where_items.extend( self.get_where({'chain.name':check_input_str(chain)}) )
 		if target:
 			where_items.extend( self.get_where({'target.name':check_input_str(target)}) )
+		if enabled is not None:
+			where_items.extend( self.get_where({'rules.enabled':enabled}) )
 		if id:
 			if type(id) == types.StringType:
 				id = int(id)
@@ -375,7 +377,7 @@ class db(object):
 		if '%s' in use_fmt:
 			use_fmt %= iptables
 
-		return self.get_table( rule_join, [ use_fmt,], ' AND '.join(where_items), self.rule_order, distinct=False )
+		return self.get_table( rule_join, [ use_fmt, 'rules.id' ], ' AND '.join(where_items), self.rule_order, distinct=False )
 	
 	def get_chain_id(self, name, table_name=None, table_id=False):
 		check_input_str( name )
