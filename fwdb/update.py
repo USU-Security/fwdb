@@ -338,6 +338,7 @@ def main():
 				else:
 					print "\t\tiptables-save failed, unable to collect statistics"
 				os.system( 'iptables-save > %s' % iptstore )
+				os.system( 'ipset --save > %s' % setstore )
 				print newdir, olddir
 				os.rename(currdir, olddir)
 				os.rename(newdir, currdir)
