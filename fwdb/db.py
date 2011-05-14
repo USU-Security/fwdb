@@ -461,18 +461,21 @@ class db(object):
 		else:
 			self.add_dict( 'hosts', host )
 
+	def get_host(self, host_id):
+		return self.get_dict('hosts',['name','host','host_end','description', 'id',], {'id': host_id} )[0]
+
 	def add_host_to_group( self, group_id, host_id=None, hostname=None ):
-		host = get_host(host_id = host_id, hostname = hostname)
 		if not host_id:
-			host_id = host['id']
+			host_id = self.get_host_id(hostname = hostname)
+		host = self.get_host(host_id)
 		if IPy.IP(host['host']).len() == 1:
-			d = get_table('hosts_to_groups as h2g join hosts on h2g.hid = hosts.id',['hosts.host','hosts.endhost'],
-					'h2g.gid = %s and masklen(hosts.host) < 32')
+			d = self.get_table('hosts_to_groups as h2g join hosts on h2g.hid = hosts.id',['hosts.host','hosts.host_end'],
+					'h2g.gid = %s and masklen(hosts.host) < 32' % int(group_id))
 		else:
-			d = get_table('hosts_to_groups as h2g join hosts on h2g.hid = hosts.id',['hosts.host','hosts.endhost'],
-					'h2g.gid = %s and masklen(hosts.host) = 32')
+			d = self.get_table('hosts_to_groups as h2g join hosts on h2g.hid = hosts.id',['hosts.host','hosts.host_end'],
+					'h2g.gid = %s and masklen(hosts.host) = 32' % int(group_id))
 		if d:
-			raise Exception("Cannot mix hosts and networks: gid: %s, host: %s, existing: %s" % (gid, host, d) )
+			raise Exception("Cannot mix hosts and networks: gid: %s, host: %s, existing: %s" % (group_id, host, d) )
 
 		self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,} )
 			
