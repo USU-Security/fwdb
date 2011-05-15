@@ -193,7 +193,7 @@ def main():
 	check_dirs( [ currdir, backupdir, scriptdir, newdir, ] )
 
 	print "calculating set changes:"
-	tmpset = open(tmpsetname, 'w')
+	tmpset = open(tmpsetname, 'w+')
 	oldcfg, newcfg, sets_changed = update_sets( outfile=tmpset )
 	tmpset.seek(0)
 
