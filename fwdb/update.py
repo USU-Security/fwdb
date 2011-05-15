@@ -138,6 +138,8 @@ def update_sets( delete=False, oldcfg=None, newcfg=None, outfile=None ):
 			outfile.write(cmd)
 			outfile.write('\n')
 	del_set_names = old_set_names.difference(new_set_names)
+
+	changed = add_set_names or del_set_names
 	
 	if delete:
 		for i in del_set_names:
@@ -147,7 +149,6 @@ def update_sets( delete=False, oldcfg=None, newcfg=None, outfile=None ):
 			else:
 				outfile.write(cmd)
 				outfile.write('\n')
-	changed = False
 	for name in new_set_names:
 		if name in old_set_names:
 			if update_set(oldcfg[name], newcfg[name], outfile):
