@@ -789,11 +789,10 @@ class ipset_list(object):
 			if end_address is None:
 				end_address = address
 			end_address = IPy.IP(end_address)
-			one = IPy.IP('0.0.0.1')
 			a = IPy.IP(address)
 			while a <= end_address:
 				self.set_members[set_name].add(a)
-				a += one
+				a = IPy.IP(a.int() + 1)
 		else:
 			if end_address:
 				raise Exception("Range containing a network? %s %s %s" % (set_name, address, end_address))
