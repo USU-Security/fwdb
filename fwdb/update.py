@@ -96,7 +96,7 @@ def runcmd(s):
 	if ret != 0:
 		raise Exception( "command FAILED: %s" % s )
 
-def update_set(old,new, outfile=None):
+def update_set(old, new, outfile=None):
 	(remove,add) = old.diff(new)
 	changed = False
 	for a in add:

@@ -643,6 +643,7 @@ class db(object):
 		data = self.get_dict( from_def, ['groups.name', 'groups.id', 'hosts.name', 'hosts.id', 'hosts.host', 'hosts.host_end',],
 				whereclause, order_by='groups.name, hosts.id' )
 		for d in data:
+			print "sets.add", d['groups.name'],d['hosts.host'],d['hosts.host_end']
 			sets.add(d['groups.name'],d['hosts.host'],d['hosts.host_end'])
 
 		return sets
@@ -797,6 +798,7 @@ class ipset_list(object):
 			if end_address:
 				raise Exception("Range containing a network? %s %s %s" % (set_name, address, end_address))
 			self.set_members[set_name].add(address)
+		print 'result: ',self.set_members[set_name]
 	def __str__(self):
 		return self.as_string()
 	def as_string(self, name_suffix = None):
