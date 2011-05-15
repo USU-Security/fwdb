@@ -797,7 +797,6 @@ class ipset_list(object):
 			if end_address:
 				raise Exception("Range containing a network? %s %s %s" % (set_name, address, end_address))
 			self.set_members[set_name].add(address)
-		print 'result: ',self.set_members[set_name]
 	def __str__(self):
 		return self.as_string()
 	def as_string(self, name_suffix = None):
