@@ -195,7 +195,10 @@ def main():
 	print "calculating set changes:"
 	tmpset = open(tmpsetname, 'w')
 	oldcfg, newcfg, sets_changed = update_sets( outfile=tmpset )
-	tmpset.close()
+	tmpset.seek(0)
+
+	for l in tmpset:
+		sys.stdout.write(l)
 
 	print "generating ruleset:"
 	new = open(iptname,'w')
@@ -257,7 +260,7 @@ def main():
 	#	sys.stdout.write(l)
 	#tmpdiff.close()
 
-	if not changed or sets_changed:
+	if not (changed or sets_changed):
 		print '\tconfiguration unchanged.'
 		#os.unlink(newdir)
 	else:
@@ -344,15 +347,16 @@ def main():
 				os.rename(currdir, olddir)
 				os.rename(newdir, currdir)
 				print '\tdone.'
+
+				print "Final ipset update:"
+				update_sets(newcfg = newcfg, delete=True)
+				print "done."
+			
 		else:
 			print 'NOT updating!'
 			exit(1)
 
 
-	print "Final ipset update:"
-	update_sets(newcfg = newcfg, delete=True)
-	print "done."
-	
 	del iface
 
 if __name__ == '__main__':
