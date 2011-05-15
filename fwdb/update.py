@@ -247,7 +247,7 @@ def main():
 
 	# FIXME: this is probably bad form
 	#changed = os.system("diff -u '%s' '%s'" % (scriptname, tmpfile))
-	changed = subprocess.call(["/usr/bin/diff", '-u', iptname, curriptname,], stdout=tmpdiff)
+	changed = subprocess.call(["/usr/bin/diff", '-u', curriptname, iptname,], stdout=tmpdiff)
 
 	tmpdiff.close()
 
