@@ -32,6 +32,13 @@ def check_table_name(v):
 		return True
 	raise Exception("Invalid table name: '%s'" % v)
 
+def check_input(v):
+	if type(v) is str:
+		return check_input_str(v)
+	if type(v) in (list, tuple, set):
+		return check_input_list(v)
+	if type(v) is dict:
+		return check_input_dict(v)
 
 def check_input_str(v):
 	if type(v) == types.IntType:
@@ -51,7 +58,7 @@ def check_input_list(v):
 def check_input_dict(d):
 	for i in d.keys():
 		v = d[i]
-		if type(v) == types.ListType:
+		if type(v) in(types.ListType, set, tuple):
 			d[i] = check_input_list(v)
 		elif v is None:
 			pass
@@ -168,7 +175,7 @@ class db(object):
 	rule_order = 'ORDER BY CASE WHEN chain.builtin = TRUE THEN 1 ELSE 0 END,chain.name,rules.ord,rules.id,src.host,dst.host'
 	#rule_valid_where="""(if_in.firewall_id = '$firewall_id' OR if_in.firewall_id IS NULL) AND (if_out.firewall_id = '$firewall_id' OR if_out.firewall_id IS NULL )"""
 
-	def __init__( self, db=None, fw=None ):
+	def __init__( self, db=None, fw=None, user=None):
 		if not db:
 			db="dbname='fwdb' user='esk'"
 		self.__conn = psycopg2.connect(db)
@@ -177,9 +184,17 @@ class db(object):
 		self.uid=1
 		self.fw = None
 		if fw:
-			r = self.execute_query("select id from firewalls where name = %s", [fw])
+			r = self.execute_query("select id from firewalls where name = %s;", [fw])
 			if r:
 				self.fw = r[0][0]
+		self.user = None
+		if user:
+			r = self.execute_query("select id from users where name = %s or a_number = %s;", [user, user]);
+			if r:
+				self.user = r[0][0]
+		if fw and user:
+			if not self.check_fw_permission():
+				raise ValueError("%s does not have access to firewall %s"%(user, fw))
 	def __del__( self ):
 		self.__conn.close()
 
@@ -246,22 +261,39 @@ class db(object):
 			v = d[i]
 			if type(v) == types.IntType:
 				where_items.append('%s = %s' % (i,str(v)) )
-			if type(v) == types.ListType:
+			if type(v) in (types.ListType, set, tuple):
 				where_items.append('%s IN %s' % (i, "(%s)" % ', '.join(v)) )
 			elif is_address(v):
-				where_items.append( self.host_ip_match(i,str(v)) )
+				exact=v[-3:] == '/32'
+				where_items.append( self.host_ip_match(i,str(v), exact) )
 			elif has_wildcard(v):
 				where_items.append("%s like '%s'" % (i,str(v)) )
 			else:
 				where_items.append("%s = '%s'" % (i,str(v)) )
 		return where_items
 	
-	def get_dict( self, table, columns, d=None, conj = ' AND ', order_by=None ):
+	def get_dict( self, table, columns, d=None, conj = ' AND ', order_by=None, distinct = False):
 		where_items=[]
+		from_items = []
+		from_keys = []
+		for a in columns:
+			if type(a) in (list, tuple):
+				from_items.append(a[0])
+				from_keys.append(a[1])
+			else:
+				from_items.append(a)
+				from_keys.append(a)
+		distinct = distinct and "DISTINCT " or ""
 		if d:
-			sql = 'SELECT %s FROM %s WHERE %s' % (','.join(columns), table, conj.join(self.get_where(d)))
+			if type(d) is str:
+				where = d
+			elif type(d) is dict:
+				where = conj.join(self.get_where(d))
+			else:
+				raise Exception("d should be dict or string, not %r"%d)
+			sql = 'SELECT %s%s FROM %s WHERE %s' % (distinct, ','.join(from_items), table, where)
 		else:
-			sql = 'SELECT %s FROM %s' % (','.join(columns), table)
+			sql = 'SELECT %s%s FROM %s' % (distinct, ','.join(from_items), table)
 
 		if order_by is not None:
 			sql = "%s ORDER BY %s" % (sql, order_by)
@@ -271,8 +303,8 @@ class db(object):
 		final = []
 		for d in data:
 			item={}
-			for i in range(len(columns)):
-				item[columns[i]]=d[i]
+			for i in range(len(from_keys)):
+				item[from_keys[i]]=d[i]
 			final.append(item)
 
 		return final
@@ -280,6 +312,10 @@ class db(object):
 	def get_host_clause( self, fields, host, nulls=False, exact=True ):
 			if is_address( host ):
 				host_ids = [ i[0] for i in self.get_table( 'hosts', ['id'], self.host_ip_match('host', host, exact=exact) ) ]
+			elif type(host) is int:
+				host_ids = [host]
+			elif type(host) in (list, tuple, set):
+				host_ids = list(host)
 			else:
 				host_ids = [ i[0] for i in self.get_table( 'hosts', ['id'], "name = '%s'" % host) ]
 			
@@ -318,10 +354,9 @@ class db(object):
 		if id:
 			return id
 		raise Exception('FIXME: Invalid port')
-
 	def get_rules( self, host=None, port=None, src=None, sport=None, dst=None, dport=None, chain=None, id=None,
-			iptables='iptables', ipt_restore=False, table=False, target=None, fw_id=None, andwhere=None,
-			expired=None, show_usage=False, enabled=None ):
+			iptables='iptables', ipt_restore=False, table=False, target=None, andwhere=None, columns=None,
+			expired=None, show_usage=False, enabled=None, append_default_columns=False, asdict=False):
 		where_items = []
 		if ipt_restore:
 			use_fmt = self.rule_restore_fmt
@@ -338,12 +373,12 @@ class db(object):
 			port = self.get_port_id( port )
 			where_items.append('(rules.sport = %d OR rules.dport = %d)' % (port,port))
 		if src:
-			where_items.append(self.get_host_clause(['src',], check_input_str(src), nulls=False))
+			where_items.append(self.get_host_clause(['src',], check_input(src), nulls=False))
 		if sport:
 			sport = self.get_port_id( sport )
 			where_items.append( 'rules.sport = %d' % int(sport) )
 		if dst:
-			where_items.append(self.get_host_clause(['dst',], dst, nulls=False))
+			where_items.append(self.get_host_clause(['dst',], check_input(dst), nulls=False))
 		if dport:
 			dport = self.get_port_id( dport )
 			where_items.append( 'rules.dport = %d' % int(dport) )
@@ -359,25 +394,34 @@ class db(object):
 			where_items.extend(self.get_where({'rules.id':id}))
 		if table is not False:
 			where_items.append( 'chain.tbl = %d' % int(table))
-		if fw_id:
+		if self.fw:
+			valid_chains = self.get_fw_chains()
+			where_items.append( " (chain.id in ("+",".join(map(str, valid_chains)) + "))")
 			if not ipt_restore:
 				use_fmt = self.rule_full_fmt
 			# FIXME: do we need to do more sanity checking on interfaces?
-			where_items.append('(if_in.firewall_id = (SELECT id FROM firewalls WHERE name=\'%s\') or rules.if_in is NULL)' % fw_id)
-			where_items.append('(if_out.firewall_id = (SELECT id FROM firewalls WHERE name=\'%s\') or rules.if_out is NULL)' % fw_id)
+			where_items.append('(if_in.firewall_id = %s or rules.if_in is NULL)' % self.fw)
+			where_items.append('(if_out.firewall_id = %s or rules.if_out is NULL)' % self.fw)
 		if andwhere:
 			where_items.append( andwhere )
+			
 
 		rule_join = self.rule_join
-
 		if show_usage:
 			rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, self.usage_subq + ' ON rules.id = usage.rule'])
 			use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 12 mo: ' || packets12 ||', 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 || E'\\n' ELSE 'USAGE: nothing recorded' END"])
-
 		if '%s' in use_fmt:
 			use_fmt %= iptables
 
-		return self.get_table( rule_join, [ use_fmt, 'rules.id' ], ' AND '.join(where_items), self.rule_order, distinct=False )
+		if columns is None:
+			columns = []
+			append_default_columns=True
+		if append_default_columns:
+			columns.extend([ use_fmt, 'rules.id' ])
+		if asdict:
+			return self.get_dict( rule_join, columns, ' AND '.join(where_items), self.rule_order)
+		else:
+			return self.get_table( rule_join, columns, ' AND '.join(where_items), self.rule_order, distinct=False )
 	
 	def get_chain_id(self, name, table_name=None, table_id=False):
 		check_input_str( name )
@@ -435,10 +479,10 @@ class db(object):
 			else:
 				values.append("'%s'" % str(v))
 		if update:
-			sql = 'UPDATE %s SET %s WHERE %s;' % (table,', '.join(['%s = %s' % (fields[i],values[i]) for i in range(len(fields))]), where)
+			sql = 'UPDATE %s SET %s WHERE %s RETURNING id;' % (table,', '.join(['%s = %s' % (fields[i],values[i]) for i in range(len(fields))]), where)
 		else:
-			sql = 'INSERT INTO %s(%s) VALUES (%s);' % (table,','.join(fields),','.join(values))
-		self.execute_insert(sql)
+			sql = 'INSERT INTO %s(%s) VALUES (%s) RETURNING id;' % (table,','.join(fields),','.join(values))
+		return self.execute_query(sql)
 
 	def add_user(self,name,email=None,a_number=None):
 		# FIXME: Add some validation here
@@ -446,23 +490,41 @@ class db(object):
 		user_d['name'] = name
 		if email: user_d['email'] = email
 		if a_number: user_d['a_number'] = a_number
-		self.add_dict( 'users', user_d )
+		return self.add_dict( 'users', user_d )
 
-	def add_host(self,name,owner_name,address=None,endaddress=None,description=None, is_group=False, update=False, id=None):
+	def add_host(self,name,owner_name=None, owner_id=None,address=None,endaddress=None,description=None, is_group=False, update=False, id=None):
 		host = {}
 		host['name'] = name
 		if address: host['host'] = address
 		if endaddress: host['host_end'] = endaddress
-		host['owner'] = self.get_id_byname('users',owner_name)
+		if owner_name:
+			host['owner'] = self.get_id_byname('users',owner_name)
+		elif owner_id:
+			host['owner'] = owner_id
+		else:
+			raise Exception("Owner must be specified")
 		host['is_group']=is_group
 		if description: host['description'] = description
 		if update:
-			self.add_dict( 'hosts', host, update=True, where='id = %s' % id )
+			return self.add_dict( 'hosts', host, update=True, where='id = %s' % id )
 		else:
-			self.add_dict( 'hosts', host )
+			return self.add_dict( 'hosts', host )
 
 	def get_host(self, host_id):
-		return self.get_dict('hosts',['name','host','host_end','description', 'id',], {'id': host_id} )[0]
+		return self.get_hosts(host_ids=host_id)[0]
+	def get_hosts(self, host_ids=None, name=None, ip=None, is_group=None, gid=None):
+		where = {}
+		if host_ids:
+			where['hosts.id'] = host_ids
+		if name:
+			where['name'] = name
+		if ip:
+			where['host'] = ip
+		if is_group is not None:
+			where['is_group'] = is_group
+		if gid is not None:
+			where['gid'] = gid
+		return self.get_dict('hosts left join hosts_to_groups on hosts.id = hid', ['hosts.id', 'name', 'host', 'host_end', 'description', 'is_group', 'owner'], where, distinct=True)
 
 	def add_host_to_group( self, group_id, host_id=None, hostname=None ):
 		if not host_id:
@@ -646,6 +708,18 @@ class db(object):
 			sets.add(d['groups.name'],d['hosts.host'],d['hosts.host_end'])
 
 		return sets
+	def get_chains(self, builtin=None, name=None, cid=None):
+		where = {}
+		if builtin is not None:
+			where['builtin'] = builtin
+		if name is not None:
+			where['name'] = name
+		if cid is not None:
+			where['id'] = cid
+		else:
+			where['id'] = self.get_fw_chains()
+		return self.get_dict('chains', ['id', 'name', 'builtin', 'description'], where)
+
 	def get_fw_chains(self):
 		patterns = self.execute_query("select c.pattern from chain_patterns as c JOIN firewalls_to_chain_patterns AS f2c ON f2c.pat = c.id WHERE f2c.fw = %s;", [self.fw])
 		if patterns:
@@ -668,6 +742,39 @@ class db(object):
 				walkrules(i)
 				ret.add(i)
 		return ret
+	def get_fw_groups(self):
+		ret = set()
+		for r in self.get_rules(andwhere='src.is_group=true', columns=['src.id']):
+			ret.add(r[0])
+		for r in self.get_rules(andwhere='dst.is_group=true', columns=['dst.id']):
+			ret.add(r[0])
+		return ret
+	def get_groups(self, host_id = None, columns = None):
+		where = {'is_group': True}
+		if host_id: where['hosts_to_groups.hid'] = host_id
+		if not columns:
+			columns = [('hosts.id', 'gid'), 'name', 'owner', 'description']
+
+		return self.get_dict("hosts_to_groups join hosts on hosts_to_groups.gid  = hosts.id", columns, where)
+
+	def get_firewalls(self):
+		if self.user:
+			return [i[0] for i in self.execute_query("select f.name from firewalls as f join permissions as p on f.id = p.fw_id and p.user_id=%s;", [self.user])];
+		return [i[0] for i in self.execute_query("select f.name from firewalls")];
+	def check_fw_permission(self):
+		if self.fw and self.user:
+			r = self.execute_query("select id from permissions where user_id = %s and fw_id = %s;", [self.user, self.fw]);
+			if r:
+				return True
+		return False
+	def get_user(self, uid = None, name = None, email = None, a_number = None):
+		where = {}
+		if uid: where['id'] = uid
+		if name: where['name'] = name
+		if email: where['email'] = email
+		if a_number: where['a_number'] = a_number
+		return self.get_dict('users', ['id', 'name', 'email', 'a_number'], where)
+		
 				
 
 

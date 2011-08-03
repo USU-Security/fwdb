@@ -230,7 +230,7 @@ def main():
 			new.write(line[0])
 
 		quote_foo = re.compile(r'([^"]*)"([^"]*)"')
-		for line in iface.get_rules(ipt_restore=True, table=tbl_id, fw_id=firewall_id, andwhere=chain_patterns_where):
+		for line in iface.get_rules(ipt_restore=True, table=tbl_id):
 			if not line:
 				raise Exception("Database inconsistency found!")
 			new.write(line[0])
