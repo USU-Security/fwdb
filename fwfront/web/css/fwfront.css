@@ -1,0 +1,43 @@
+body {
+	background:black;
+	color:white;
+	font-size:80%;
+}
+a {
+	color:#bbbbff;
+	text-decoration:none;
+}
+a:hover {
+	color:#bbbbff;
+	text-decoration:underline;
+}
+tr:nth-child(even){
+	background-color:#111111;
+}
+.ui-widget-header {
+	font-size:150%;
+	padding-left:8px;
+	padding-top:2px;
+	padding-bottom:2px;
+}
+.ui-widget-container {
+	border: solid #444444 2px;
+	padding: 2px;
+	margin: 10px;
+}
+a.ui-state-default {
+	padding-left: 20px;
+	padding-right:5px;
+	text-decoration: none;
+	position:relative;
+}
+a.ui-state-default span.ui-icon {
+	margin:0 5px 0 0;
+	position:absolute;
+	left:.2em;
+	top: 50%; margin-top:-8px;
+}
+.values {
+	font-weight:bold;
+	padding:4px;
+}

@@ -11,6 +11,32 @@ a:hover {
 	color:#bbbbff;
 	text-decoration:underline;
 }
-tr:nth-child(even){
+tr:nth-child(even) {
 	background:#111111;
+}
+li:nth-child(even) {
+	background:#040414;
+}
+li:nth-child(odd) {
+	background:black;
+}
+
+div.fixed-proto {
+	display:inline-block;
+	width:35px;
+}
+div.fixed-ips {
+	display:inline-block;
+	width:240px;
+}
+.key {
+	text-align:right;
+	background:black;
+	font-weight:bold;
+}
+.key:after {
+	content:":";
+}
+.value {
+	background:black;
 }
