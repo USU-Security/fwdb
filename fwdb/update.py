@@ -26,7 +26,7 @@ options.add_argument('-d', '--description', help='The description of the update.
 options.add_argument('--scriptdir', help='The directory to put scripts in.', default='/root/firewall_scripts')
 options.add_argument('--dbuser', help='The database user')
 args = options.parse_args()
-print args
+
 if args.user:
 	username = args.user
 else:
