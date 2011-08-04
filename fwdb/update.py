@@ -200,7 +200,9 @@ def check_dirs( dirs ):
 
 def main():
 	global iface
-
+	global description
+	global push
+	global dry_run
 	suffix = "%s-%s" % (DATE, username)
 
 	backupdir="%s/backups" % scriptdir
