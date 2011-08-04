@@ -15,7 +15,7 @@ import tempfile
 import readline
 import argparse
 import socket
-import sha
+import hashlib
 
 options = argparse.ArgumentParser(description="Synchronize the firewall to the database")
 options.add_argument('-f', '--firewall', help="The firewall in the database to sync rules to (defaults to this host)")
@@ -278,7 +278,7 @@ def main():
 	new.close()
 
 	#generate hash
-	h = sha.new()
+	h = hashlib.sha512()
 	h.update(open(iptname).read())
 	h.update(open(ipsname).read())
 	rule_hash = h.hexdigest()
