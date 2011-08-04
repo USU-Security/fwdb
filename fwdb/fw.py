@@ -969,12 +969,12 @@ class FirewallCmd( cmd.Cmd ):
 		firewall_hosts = self.iface.get_dict('firewalls',['id', 'name',])
 		if arg.strip():
 			specific = arg.strip()
-			os.system('ssh -t root@%s /root/fwdb/update.py \'%s\'' % (specific,my_username) )
+			os.system('ssh -t root@%s /root/fwdb/update.py -u \'%s\'' % (specific,my_username) )
 			return
 			
 		for i in firewall_hosts:
 			if self.get_bool_from_user('sync %s' % i['name'], False):
-				os.system('ssh -t root@%s /root/fwdb/update.py \'%s\'' % (i['name'], my_username))
+				os.system('ssh -t root@%s /root/fwdb/update.py -u \'%s\'' % (i['name'], my_username))
 
 	def get_choice_from_user( self, prompt, list ):
 		fmt = '%s: '

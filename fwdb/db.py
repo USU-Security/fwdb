@@ -831,8 +831,8 @@ class ipset(object):
 
 		result = []
 		hashsize=1024
-
-		result.append("# Created by fwdb on %s" % str(datetime.datetime.now()) )
+		#makes it difficult to get a hash 
+		#result.append("# Created by fwdb on %s" % str(datetime.datetime.now()) )
 
 		if self.hosts:
 			while len(self.hosts) > hashsize/2: # the hash is half full

@@ -13,18 +13,52 @@ import subprocess
 import tempfile
 
 import readline
+import argparse
+import socket
+import sha
+
+options = argparse.ArgumentParser(description="Synchronize the firewall to the database")
+options.add_argument('-f', '--firewall', help="The firewall in the database to sync rules to (defaults to this host)")
+options.add_argument('-n', '--dry-run', help="Generate the rules, and return the diff, but do not activate them", action='store_true')
+options.add_argument('-p', '--push', help="Activate the current rules. Requires a hash argument to verify they are the rules you are thinking of")
+options.add_argument('-u', '--user', help="Who to log did the changes. Defaults to USERNAME_NOT_GIVEN")
+options.add_argument('-d', '--description', help='The description of the update. Asks user if not given')
+options.add_argument('--scriptdir', help='The directory to put scripts in.', default='/root/firewall_scripts')
+options.add_argument('--dbuser', help='The database user')
+args = options.parse_args()
+print args
+if args.user:
+	username = args.user
+else:
+	username = "USERNAME_NOT_GIVEN"
+if args.firewall:
+	firewall_id = args.firewall
+else:
+	firewall_id = socket.gethostname()
+description = args.description
+dry_run = args.dry_run
+push = args.push
+scriptdir=args.scriptdir
+
+if args.dbuser:
+	dbuser = args.dbuser
+else:
+	dbuser = 'banfw' #legacy, don't ask why
+
+if push and not description:
+	raise Exception("A push also requires a description")
 
 datefmt='%Y%m%d-%H%M%S'
 
 DATE=time.strftime(datefmt)
 
 iptables = '/sbin/iptables'
-firewall_id = 'fwser1.oob.usu.edu'
+#firewall_id = 'fwser1.oob.usu.edu'
 
-if len(sys.argv) == 2:
-	username = sys.argv[1]
-else:
-	username = 'USERNAME_NOT_GIVEN'
+#if len(sys.argv) == 2:
+#	username = sys.argv[1]
+#else:
+#	username = 'USERNAME_NOT_GIVEN'
 
 if os.environ.has_key('SSH_CLIENT'):
 	ssh_client=os.environ['SSH_CLIENT'].split()[0]
@@ -35,9 +69,9 @@ user_string = '%s@%s' % (username, ssh_client)
 
 #scriptdir='/var/lib/iptables'
 recipient='firewall-admins@lists.usu.edu'
-scriptdir='/root/firewall_scripts'
+if not scriptdir: scriptdir='/root/firewall_scripts'
 
-iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='banfw'", fw = firewall_id)
+iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='%s'"%dbuser, fw = firewall_id)
 
 def write_stats( iptables_save_file ):
 	print "\t\tgathering statistics..."
@@ -196,6 +230,9 @@ def main():
 	tmpset = open(tmpsetname, 'w')
 	oldcfg, newcfg, sets_changed = update_sets( outfile=tmpset )
 	tmpset.close()
+	ipsfile = open(ipsname, "w")
+	ipsfile.write(str(newcfg))
+	ipsfile.close()
 
 	print "generating ruleset:"
 	new = open(iptname,'w')
@@ -239,6 +276,13 @@ def main():
 
 	#new.write("\nEND_OF_IPTABLES_RULES\n")
 	new.close()
+
+	#generate hash
+	h = sha.new()
+	h.update(open(iptname).read())
+	h.update(open(ipsname).read())
+	rule_hash = h.hexdigest()
+	
 	print "\tdone.\ncomparing to current ruleset:"
 
 	tmpdiff_fd,tmpdiff_name = tempfile.mkstemp()
@@ -266,7 +310,7 @@ def main():
 		# if the rules are expiring with this run, or had expired
 		# before
 		# New approach... You may not update rules if some are expired; you must handle all of the rules externally
-		expired_rules = iface.get_rules( fw_id=firewall_id, andwhere=chain_patterns_where, expired=True, enabled=True )
+		expired_rules = iface.get_rules( andwhere=chain_patterns_where, expired=True, enabled=True )
 
 		if expired_rules:
 			print "----EXPIRED RULES----"
@@ -277,81 +321,90 @@ def main():
 			expired_rules = sorted(list(set(expired_rules)))
 			print '\n'.join(map(str,expired_rules))
 			raise Exception("The following expiring rules need to be handled: %s" % " ".join(map(str,expired_rules)))
-
-		os.system('[ -x /usr/bin/colordiff.disabled ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpsetname, tmpdiff_name,) )
-		x = raw_input('Load new configuration [y/N]: ')
-		if x != '' and ( x[0]=='y' or x[0]=='Y' ):
-			description = raw_input('Please enter a description of your change: ')
-			print '\tsending diff:'
-			msg = [
-					"Change by: ", user_string, '\n',
-					"Firewall: ", firewall_id, '\n',
-					"Reason given for change:\n\t",
-					description,
-					'\n\nHere is the diff:\n\n',
-				]
-			
-			tmpset = open(tmpsetname)
-			msg.extend(tmpset.readlines())
-			tmpset.close()
-
-			tmpdiff = open(tmpdiff_name,'r+')
-			msg.extend(tmpdiff.readlines())
-			
-			message = open(mailname,'w+')
-			message.writelines( msg )
-
-			message.seek(0)
-			r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, recipient,], stdin=message)
-			message.close()
-
-			if r == 0: print "\t\tdone."
-			else: print "\t\tfailed."
-
-			print "ipset update:"
-			update_sets(newcfg = newcfg)
-
-			print '\tloading new rules:'
-			save = os.system( 'iptables-save -c > %s' % tmpiptname )
-			status = os.system( 'iptables-restore < %s' % iptname )
-			if status:
-				print '\t\tFAILED! -- loading last working ruleset (storing failed set in %s)' % failedname
-				if save:
-					# Save failed! Bad!
-					status = os.system( 'iptables-restore < %s' % previptname )
-				else:
-					status = os.system( 'iptables-restore -c < %s' % tmpiptname )
-				os.rename(newdir, faileddir)
-				if status:
-					print '\t\tFAILED! -- Firewall is hosed, someone really needs to fix it'
-					print '\t\t!!! flushing all rules !!!'
-					os.system('iptables -F')
-				sys.exit(1)
-			else:
-				if not save:
-					try:
-						write_stats(tmpiptname)
-					except Exception, e:
-						# We don't want this to cause
-						#the update to fail
-						print e
-						print '\t\tFailed to store statistics.'
-				else:
-					print "\t\tiptables-save failed, unable to collect statistics"
-				os.system( 'iptables-save > %s' % iptstore )
-				os.system( 'ipset --save > %s' % setstore )
-				print newdir, olddir
-				os.rename(currdir, olddir)
-				os.rename(newdir, currdir)
-				print '\tdone.'
-
-				print "Final ipset update:"
-				update_sets(newcfg = newcfg, delete=True)
-				print "done."
-			
+		if dry_run:
+			print open(tmpsetname).read()
+			print open(tmpdiff_name).read()
+			print "======Hash: %s======"%rule_hash
 		else:
-			print 'NOT updating!'
-			exit(1)
+			if push is None:
+				os.system('[ -x /usr/bin/colordiff.disabled ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpsetname, tmpdiff_name,) )
+				x = raw_input('Load new configuration [y/N]: ')
+			elif push == rule_hash:
+				x = 'y'
+			else:
+				raise Exception("The configuration has changed since it was last viewed")
+			if x != '' and ( x[0]=='y' or x[0]=='Y' ):
+				if not description: description = raw_input('Please enter a description of your change: ')
+				print '\tsending diff:'
+				msg = [
+						"Change by: ", user_string, '\n',
+						"Firewall: ", firewall_id, '\n',
+						"Reason given for change:\n\t",
+						description,
+						'\n\nHere is the diff:\n\n',
+					]
+				
+				tmpset = open(tmpsetname)
+				msg.extend(tmpset.readlines())
+				tmpset.close()
+
+				tmpdiff = open(tmpdiff_name,'r+')
+				msg.extend(tmpdiff.readlines())
+				
+				message = open(mailname,'w+')
+				message.writelines( msg )
+
+				message.seek(0)
+				r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, recipient,], stdin=message)
+				message.close()
+
+				if r == 0: print "\t\tdone."
+				else: print "\t\tfailed."
+
+				print "ipset update:"
+				update_sets(newcfg = newcfg)
+
+				print '\tloading new rules:'
+				save = os.system( 'iptables-save -c > %s' % tmpiptname )
+				status = os.system( 'iptables-restore < %s' % iptname )
+				if status:
+					print '\t\tFAILED! -- loading last working ruleset (storing failed set in %s)' % failedname
+					if save:
+						# Save failed! Bad!
+						status = os.system( 'iptables-restore < %s' % previptname )
+					else:
+						status = os.system( 'iptables-restore -c < %s' % tmpiptname )
+					os.rename(newdir, faileddir)
+					if status:
+						print '\t\tFAILED! -- Firewall is hosed, someone really needs to fix it'
+						print '\t\t!!! flushing all rules !!!'
+						os.system('iptables -F')
+					sys.exit(1)
+				else:
+					if not save:
+						try:
+							write_stats(tmpiptname)
+						except Exception, e:
+							# We don't want this to cause
+							#the update to fail
+							print e
+							print '\t\tFailed to store statistics.'
+					else:
+						print "\t\tiptables-save failed, unable to collect statistics"
+					os.system( 'iptables-save > %s' % iptstore )
+					os.system( 'ipset --save > %s' % setstore )
+					print newdir, olddir
+					os.rename(currdir, olddir)
+					os.rename(newdir, currdir)
+					print '\tdone.'
+
+					print "Final ipset update:"
+					update_sets(newcfg = newcfg, delete=True)
+					print "done."
+				
+			else:
+				print 'NOT updating!'
+				exit(1)
 
 
 	del iface
