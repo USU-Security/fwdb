@@ -125,7 +125,7 @@ class db(object):
 			|| CASE WHEN rules.expires < NOW() then '#:expired: ' ELSE '' END\n"""
 	rule_comment_fmt="""'# id:' || rules.id || ' ord:' || ord
 		|| CASE WHEN src.name IS NOT NULL THEN CASE WHEN src.is_group THEN ' from group: ' ELSE ' from ' END || src.name ELSE '' END
-		|| CASE WHEN dst.name IS NOT NULL THEN CASE WHEN dst.is_group THEN ' from group: ' ELSE ' from ' END || dst.name ELSE '' END
+		|| CASE WHEN dst.name IS NOT NULL THEN CASE WHEN dst.is_group THEN ' to group: ' ELSE ' to ' END || dst.name ELSE '' END
 		|| CASE WHEN for_user.name IS NOT NULL then ' for ' || for_user.name ELSE '' END
 		|| CASE WHEN rules.description IS NOT NULL then ' - ' || rules.description ELSE '' END 
 		|| CASE WHEN rules.expires IS NOT NULL then ' -- EXP:' || to_char(rules.expires, 'YYYY-MM-DD') ELSE '' END || E'\\n'\n"""
@@ -363,7 +363,16 @@ class db(object):
 		else:
 			use_fmt = self.rule_display_fmt
 		if expired is not None:
-			if expired:
+			if type(expired) == str:
+				if expired.lower().strip() == 'false':
+					expired = False
+				elif expired.lower().strip() == 'true':
+					expired = True
+				else:
+					expired = int(expired)
+			if type(expired) == int:
+				where_items.append('rules.expires < ( NOW() + interval \'%s days\')' % expired)
+			elif expired:
 				where_items.append('rules.expires < NOW()')
 			else:
 				where_items.append('rules.expires > NOW()')

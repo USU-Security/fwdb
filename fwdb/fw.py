@@ -967,14 +967,20 @@ class FirewallCmd( cmd.Cmd ):
 
 	def do_sync( self, arg ):
 		firewall_hosts = self.iface.get_dict('firewalls',['id', 'name',])
+		command = "ssh -t root@%(firewall)s /root/fwdb/update.py -u '%(username)s' -f '%(firewall)s'"
+		cmd_values = {'username': my_username}
 		if arg.strip():
 			specific = arg.strip()
-			os.system('ssh -t root@%s /root/fwdb/update.py -u \'%s\'' % (specific,my_username) )
+			cmd_values['firewall'] = specific
+			os.system( command % cmd_values )
 			return
 			
 		for i in firewall_hosts:
 			if self.get_bool_from_user('sync %s' % i['name'], False):
-				os.system('ssh -t root@%s /root/fwdb/update.py -u \'%s\'' % (i['name'], my_username))
+				cmd_values['firewall'] = i['name']
+				cmd = command % cmd_values
+				print cmd
+				os.system( cmd)
 
 	def get_choice_from_user( self, prompt, list ):
 		fmt = '%s: '
@@ -1100,11 +1106,11 @@ if __name__ == '__main__':
 	if len(sys.argv) > 1:
 		dbname = sys.argv[1]
 	else:
-		raise Exception('Usage: %s <dbname>' % sys.argv[0])
+		raise Exception('Usage: %s <dbname> [non-interactive command]' % sys.argv[0])
 
 	ipam_interface = None
 
-	x = raw_input('use ipam support [y/N]: ')
+	disabled_foo="""x = raw_input('use ipam support [y/N]: ')
 	if x and ( x[0] in ['y','Y'] ):
 		from openipam_xmlrpcclient import CookieAuthXMLRPCSafeTransport
 		import xmlrpclib
@@ -1149,8 +1155,13 @@ if __name__ == '__main__':
 		username = raw_input('username: ')
 		password = getpass.getpass('password: ')
 		ipam_interface = XMLRPCInterface( username=username, password=password, url='https://xmlrpc.ipam.usu.edu:8443/api/' )
+	"""
 
 	cli = FirewallCmd( dbname=dbname, ipam_interface = ipam_interface )
+
+	if len(sys.argv) > 2:
+		cli.onecmd(' '.join(sys.argv[2:]))
+		sys.exit()
 
 	while True:
 		try:
