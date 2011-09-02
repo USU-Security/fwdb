@@ -430,12 +430,12 @@ class FirewallCmd( cmd.Cmd ):
 		_type = args[0]
 
 		if _type == 'rule':
-			set_to = "expires + interval '1 year'"
+			set_to = "NOW() + interval '1 year'"
 			if args[1].strip()[0] not in '1234567890':
 				time_arg = args[1].strip()
 				del args[1]
 				if time_arg[0] in '+-':
-					set_to = "expires + interval '%s days'" % int(time_arg) # should be safe
+					set_to = "NOW() + interval '%s days'" % int(time_arg) # should be safe
 				elif time_arg[0] == '=':
 					set_to = time_arg[1:]
 					if re.search(r'[^0-9-]',set_to):
