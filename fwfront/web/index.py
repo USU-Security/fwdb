@@ -4,36 +4,27 @@ import cgitb; cgitb.enable()
 import sys
 sys.path.append("..")
 from data import db_gw
+import web
 
-print """content-type: text/html\n\n
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html>
- <head>
-  <link type="text/css" href="css/custom-theme/jquery-ui-1.8.4.custom.css" rel="stylesheet" />
-  <link type="text/css" href="css/jquery.jnotify.css" rel="stylesheet" />
-  <link type="text/css" href="css/jsfront.css" rel="stylesheet" />
- </head>
- <body>
-"""
+print web.head()
 args = cgi.FieldStorage()
 
+body = []
 if 'fw' not in args:
 	db = db_gw()
-	print "<h3>Please select a firewall</h3><ul>"
+	body.append("<h3>Please select a firewall</h3><table>")
 	for f in db.get_firewalls():
-		print "<li><a href='?fw=%s'>%s</a></li>"%(f,f)
-	print "</ul>"
+		body.append("<tr><td><a href='sync.py?fw=%s' class='ui-state-default ui-corner-all'>Sync</a></td><td><a href='?fw=%s'>%s</a></td></tr>"%(f,f, f))
+	body.append("</table>")
 else:
 	fw = fw=args['fw'].value
 	db = db_gw(fw=fw)
-	print "<h1>%s</h1>"%fw
-	print "<ul>"
-	print "<li><a href='host.py?fw=%s'>Groups</a></li>"%fw
-	#print "<li><a href='host.py?fw=%s'>Hosts</a></li>"%fw
-	print "<li><a href='rules.py?fw=%s'>Rules</a></li>"%fw
-	print "</ul"
+	body.append("<h1>%s</h1>"%fw)
+	body.append("<ul>")
+	body.append("<li><a href='host.py?fw=%s'>Groups</a></li>"%fw)
+	#body.append("<li><a href='host.py?fw=%s'>Hosts</a></li>"%fw)
+	body.append("<li><a href='rules.py?fw=%s'>Rules</a></li>"%fw)
+	body.append("</ul")
 
-print """
- </body>
-</html>
-"""
+print web.body("".join(body), db=db)
+print web.footer()

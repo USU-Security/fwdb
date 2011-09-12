@@ -8,19 +8,26 @@ import db
 import json
 import re
 from db import is_address
+import base64
 
 debug = True
 
 class db_gw:
 	def __init__(self, fw=None):
-		self.iface = db.db("dbname=testfwdb_rian host=newdb1.ipam.usu.edu user=testfwdb password='XUU2Hq7IkGpPMFTkOPCu32ELtLYThQwp'", user=os.environ['REMOTE_USER'], fw=fw)
+		#self.iface = db.db("dbname=testfwdb_rian host=newdb1.ipam.usu.edu user=testfwdb password='XUU2Hq7IkGpPMFTkOPCu32ELtLYThQwp'", user=os.environ['REMOTE_USER'], fw=fw)
+		auth_type, auth = os.environ['HTTP_AUTHORIZATION'].split()
+		if auth_type != "Basic":
+			raise Exception("Only basic auth is supported at this time")
+		user, password = base64.b64decode(auth).split(":")
+		self.user = user
+		self.iface = db.db("dbname=fwdb host=newdb1.ipam.usu.edu user=%s password='%s'"%(user, password), user=os.environ['REMOTE_USER'], fw=fw)
 		self.fw = fw
 	#default to eldon's code. 
 	def __getattr__(self, a):
 		#if no firewall is set, restrict the allowed methods
-		if not self.iface.fw:
-			if a not in ('get_firewalls'):
-				raise Exception("Invalid permissions: Unable to access restricted function")
+		#if not self.iface.fw:
+		#	if a not in ('get_firewalls'):
+		#		raise Exception("Invalid permissions: Unable to access restricted function")
 		return self.iface.__getattribute__(a)
 	def get_chain_graph(self):
 		"""

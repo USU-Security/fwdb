@@ -34,9 +34,9 @@ if 'addnew' in args:
 	description = args['description'].value
 	nid = db.add_host(name= name, owner_id=owner, address=host, description=description)
 	db.add_host_to_group(group_id=gid, host_id=nid[0][0])
-	print "<script type='text/javscript'>location='host.py?fw=%s&id=%s';</script></head>"%(fw, gid)
+	print "<script type='text/javscript'>location='host.py?fw=%s&id=%s';</script>"%(fw, gid)
 	print '<meta http-equiv="Refresh" content="0; url=host.py?fw=%s&id=%s" /></head>'%(fw, gid)
-	print "</head><body>Successfully added host. Click <a href='host.py?fw=%s&id=%s'>here</a> to continue</body>"%(fw, gid)
+	print "<body>Successfully added host. Click <a href='host.py?fw=%s&id=%s'>here</a> to continue</body>"%(fw, gid)
 elif 'add' in args:
 	add = args['add'].value
 	if is_address(add):
@@ -49,9 +49,9 @@ elif 'add' in args:
 		raise Exception("Uh oh, too many matching hosts. slap eldon accross the back of the head and tell him to fix it: %r"%h)
 	elif len(h) == 1:
 		db.add_host_to_group(group_id = gid, host_id = h[0]['hosts.id'])
-		print "<script type='text/javscript'>location='host.py?fw=%s&id=%s';</script></head>"%(fw, gid)
 		print '<meta http-equiv="Refresh" content="0; url=host.py?fw=%s&id=%s" /></head>'%(fw, gid)
-		print "</head><body>Successfully added host. Click <a href='host.py?fw=%s&id=%s'>here</a> to continue</body>"%(fw, gid)
+		print "<body><script type='text/javscript'>window.location='host.py?fw=%s&id=%s';</script>"%(fw, gid)
+		print "Successfully added host. Click <a href='host.py?fw=%s&id=%s'>here</a> to continue</body>"%(fw, gid)
 	else:
 		print "</head><body>"
 		print "<form action='addhost.py'>"
@@ -75,7 +75,7 @@ elif 'add' in args:
 		print "<tr><td class='key'>Owner</td><td class='value'><select name='owner'>"+"".join(optlist) + "</select></td></tr>"
 		print "<tr><td class='key'>Description</td><td class='value'><textarea name='description'></textarea></td></tr>"
 		print "</table>"
-		print "<input type='submit' name='addnew' value='Add Host'></input>"
+		print "<input type='submit' name='addnew' value='Add Host' class='ui-state-default ui-corner-all'></input>"
 		print "</form>"
 		print "</body>"
 			
