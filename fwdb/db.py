@@ -423,7 +423,7 @@ class db(object):
 		if show_usage:
 			age = time.time() - self.last_usage_update
 			if age < 3600:
-				print "Using usage statistics which were cached %d seconds ago" % (age/60+1)
+				print "Using usage statistics which were cached %d minutes ago" % (age/60+1)
 			else:
 				print "Updating usage statistics cache"
 				t0 = time.time()
