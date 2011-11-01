@@ -76,6 +76,7 @@ class FirewallCmd( cmd.Cmd ):
 		atexit.register(self.save_history, histfile)
 
 	def do_show_usage(self, arg):
+		"Enable or disable the display of usage statistics"
 		arg = arg.strip().lower()
 		if not arg:
 			self.show_usage = not self.show_usage
@@ -126,6 +127,10 @@ class FirewallCmd( cmd.Cmd ):
 		return None
 
 	def do_sql(self, arg):
+		"""Enable/disable the display of SQL queries
+		sql on
+		sql off
+		sql     # show current state"""
 		if arg.lower() in ['on','true']:
 			self.iface.show_sql = True
 		elif arg:
@@ -180,6 +185,8 @@ class FirewallCmd( cmd.Cmd ):
 		sys.exit()
 
 	def do_save( self, arg ):
+		"""Save output of given command to given file
+		save FILENAME COMMAND [SUBCOMMAND]..."""
 		( filename, cmd ) = arg.split(' ',1)
 		output = open( filename.strip(), 'w' )
 		old_stdout = os.dup(sys.stdout.fileno())
@@ -320,6 +327,7 @@ class FirewallCmd( cmd.Cmd ):
 		return self._complete_show( 'del', *args, **kw )
 	
 	def do_del( self, arg ):
+		"""Delete an item of the given type"""
 		(subcmd, subarg) = arg.split(' ',1)
 		if subcmd == 'user':
 			fields = ['id','name','a_number','email',]
@@ -390,17 +398,24 @@ class FirewallCmd( cmd.Cmd ):
 				self.iface.del_table('rules',where)
 		
 	def do_disable( self, arg ):
+		"""Disable the given rule id(s)
+		disable ID [ID]..."""
 		ids = arg.strip().split()
 		self.iface.disable_rule(ids)
 	
 	def do_enable( self, arg ):
+		"""Enable the given rule id(s)
+		enable ID [ID]..."""
 		ids = arg.strip().split()
 		self.iface.enable_rule(ids)
 	
 	def do_add( self, arg ):
+		"""Add a new entry of the given type"""
 		self.add_record( arg, update=False )
 
 	def do_copy( self, arg ):
+		"""Copy the values of the given object to a new object of the same type
+		copy rule ID"""
 		args = arg.split()
 		if len(args) != 2:
 			print "expected 2 arguments, got %s" % args
@@ -437,6 +452,7 @@ class FirewallCmd( cmd.Cmd ):
 			self.add_rule(defaults=defaults,extended=True)
 
 	def do_update( self, arg ):
+		"""Modify the given entry"""
 		self.add_record( arg, update=True )
 	
 	def do_extend( self, arg ):
@@ -916,14 +932,14 @@ class FirewallCmd( cmd.Cmd ):
 			if subarg: where = "users.name = '%s'" % db.check_input_str( subarg )
 			vals = self.iface.get_table('users',fields,where)
 			self.show_vals(fields, vals)
-		if subcmd == 'chain':
+		elif subcmd == 'chain':
 			fields = ['chains.id','chains.name','tables.name','chains.builtin','chains.description',]
 			frm = 'chains LEFT OUTER JOIN tables ON chains.tbl = tables.id'
 			where = None
 			if subarg: where = "chains.name like '%s'" % db.check_input_str( subarg )
 			vals = self.iface.get_table(frm,fields,where)
 			self.show_vals(fields, vals)
-		if subcmd == 'host':
+		elif subcmd == 'host':
 			fields = ['hosts.id','hosts.name','hosts.host','hosts.host_end','users.name','hosts.description',]
 			groupfields = ['hosts.id','hosts.name','users.name','hosts.description','hosts_to_groups.hid']
 			grouplabels = ['id','name','users.name','description','member id']
@@ -946,14 +962,14 @@ class FirewallCmd( cmd.Cmd ):
 				print "\nGroup entries:"
 				self.show_vals(grouplabels, groupvals)
 
-		if subcmd == 'group':
+		elif subcmd == 'group':
 			fields = ['hosts.id','hosts.name','hosts.host','hosts.host_end','users.name','hosts.description',]
 			frm = 'hosts LEFT OUTER JOIN users ON hosts.owner = users.id'
 			where = 'hosts.is_group = TRUE'
 			if subarg: where += " AND hosts.name like '%s'" % db.check_input_str( subarg )
 			vals = self.iface.get_table(frm,fields,where)
 			self.show_vals(fields, vals)
-		if subcmd == 'port':
+		elif subcmd == 'port':
 			fields = ['id','name','port','endport','description',]
 			where = None
 			if subarg:
@@ -961,19 +977,19 @@ class FirewallCmd( cmd.Cmd ):
 				where = "ports.id = %s" % id
 			vals = self.iface.get_table('ports',fields,where)
 			self.show_vals(fields, vals)
-		if subcmd == 'interface':
+		elif subcmd == 'interface':
 			fields = ['id','name','description',]
 			where = None
 			#if subarg: where = "ports.name = '%s'" % db.check_input_str( subarg )
 			vals = self.iface.get_table('interfaces',fields,where)
 			self.show_vals(fields, vals)
-		if subcmd == 'real_interface':
+		elif subcmd == 'real_interface':
 			fields = ['real.id','pseudo.name','real.name','pseudo.description','real.firewall_id',]
 			where = None
 			#if subarg: where = "ports.name = '%s'" % db.check_input_str( subarg )
 			vals = self.iface.get_table('real_interfaces as real join interfaces as pseudo on real.pseudo = pseudo.id',fields,where)
 			self.show_vals(fields, vals)
-		if subcmd == 'rule':
+		elif subcmd == 'rule':
 			if subarg:
 				args = self.mkdict(arg[5:])
 				rules = self.iface.get_rules(show_usage=self.show_usage, **args)
@@ -981,8 +997,21 @@ class FirewallCmd( cmd.Cmd ):
 				rules = self.iface.get_rules(show_usage=self.show_usage)
 
 			print '\n'.join( [i[0] for i in rules] )
+		elif subcmd in ['firewall','firewalls']:
+			print '\n'.join(self.iface.get_firewalls())
+		else:
+			raise Exception("Subcommand %r not recognized." % subcmd) 
 
+	def do_firewall( self, arg ):
+		"""Only look at configuration for the given firewall instead of all firewalls
+		firewall FIREWALL_NAME"""
+		arg = arg.strip()
+		self.iface.set_firewall(arg)
+		
 	def do_sync( self, arg ):
+		"""Update configuration on all firewalls or optionally the specified one
+		usage: sync [FIREWALL_NAME]
+		"""
 		firewall_hosts = self.iface.get_dict('firewalls',['id', 'name',])
 		command = "ssh -t root@%(firewall)s /root/fwdb/update.py -u '%(username)s' -f '%(firewall)s'"
 		cmd_values = {'username': my_username}

@@ -182,13 +182,10 @@ class db(object):
 			db="dbname='fwdb' user='esk'"
 		self.__conn = psycopg2.connect(db)
 		self.__curs = self.__conn.cursor()
-		# FIXME!
 		self.uid=1
 		self.fw = None
-		if fw:
-			r = self.execute_query("select id from firewalls where name = %s;", [fw])
-			if r:
-				self.fw = r[0][0]
+		# FIXME!
+		self.set_firewall(fwname=fw)
 		self.user = None
 		if user:
 			r = self.execute_query("select id from users where name = %s or a_number = %s;", [user, user]);
@@ -201,6 +198,14 @@ class db(object):
 		self.temp_usage_table_name = None
 	def __del__( self ):
 		self.__conn.close()
+
+	def set_firewall( self, fwname=None, fwid=False ):
+		if fwname:
+			r = self.execute_query("select id from firewalls where name = %s;", [fwname])
+			if r:
+				self.fw = r[0][0]
+		elif fwid is not False:
+			self.fw = fwid
 
 	def execute_insert(self, statement, values=None):
 		try:
@@ -788,7 +793,7 @@ class db(object):
 	def get_firewalls(self):
 		if self.user:
 			return [i[0] for i in self.execute_query("select f.name from firewalls as f join permissions as p on f.id = p.fw_id and p.user_id=%s;", [self.user])];
-		return [i[0] for i in self.execute_query("select f.name from firewalls")];
+		return [i[0] for i in self.execute_query("select f.name from firewalls as f")];
 	def check_fw_permission(self):
 		if self.fw and self.user:
 			r = self.execute_query("select id from permissions where user_id = %s and fw_id = %s;", [self.user, self.fw]);
