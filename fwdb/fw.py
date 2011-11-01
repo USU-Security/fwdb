@@ -66,12 +66,29 @@ class FirewallCmd( cmd.Cmd ):
 		self.iface = db.db("dbname=%s host=newdb1.ipam.usu.edu" % dbname)
 		cmd.Cmd.__init__( self )
 
+		self.show_usage = True
+
 		try:
 			readline.read_history_file(histfile)
 		except IOError:
 			pass
 
 		atexit.register(self.save_history, histfile)
+
+	def do_show_usage(self, arg):
+		arg = arg.strip().lower()
+		if not arg:
+			self.show_usage = not self.show_usage
+		elif arg in ['y','yes','on','true','t']:
+			self.show_usage = True
+		else:
+			self.show_usage = False
+		
+		if self.show_usage:
+			print "displaying usage statistics"
+		else:
+			print "not displaying usage statistics"
+
 
 	def save_history(self, histfile):
 		readline.write_history_file(histfile)
@@ -363,7 +380,7 @@ class FirewallCmd( cmd.Cmd ):
 		if subcmd == 'rule':
 			subarg = map(int, subarg.split())
 			#subarg = int(subarg)
-			rules = self.iface.get_rules( id=subarg, show_usage=True )
+			rules = self.iface.get_rules( id=subarg, show_usage=self.show_usage )
 			if not rules:
 				print 'No match'
 				return
@@ -453,7 +470,7 @@ class FirewallCmd( cmd.Cmd ):
 				self.iface.execute_insert(sql)
 	
 	def show_rules( self, ids ):
-		rules = self.iface.get_rules(show_usage=True, id=ids)
+		rules = self.iface.get_rules(show_usage=self.show_usage, id=ids)
 		print '\n'.join( [i[0] for i in rules] )
 
 	def check_host( self, name ):
@@ -959,9 +976,9 @@ class FirewallCmd( cmd.Cmd ):
 		if subcmd == 'rule':
 			if subarg:
 				args = self.mkdict(arg[5:])
-				rules = self.iface.get_rules(show_usage=True, **args)
+				rules = self.iface.get_rules(show_usage=self.show_usage, **args)
 			else:
-				rules = self.iface.get_rules(show_usage=True)
+				rules = self.iface.get_rules(show_usage=self.show_usage)
 
 			print '\n'.join( [i[0] for i in rules] )
 
@@ -981,6 +998,9 @@ class FirewallCmd( cmd.Cmd ):
 				cmd = command % cmd_values
 				print cmd
 				os.system( cmd)
+
+		# Force an update on cached usage statistics
+		self.iface.last_usage_update = 0
 
 	def get_choice_from_user( self, prompt, list ):
 		fmt = '%s: '

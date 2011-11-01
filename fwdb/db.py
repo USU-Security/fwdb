@@ -7,6 +7,8 @@ import os
 
 import IPy
 
+import time
+
 # NOTE: endlines should never be allowed anywhere
 valid = re.compile( r"^[a-zA-Z0-9 '!/@.,%\"=?\n<>()\\:#|_$\t-]+$" )
 #address = re.compile( r"^([0-9]{1,3}\.){,3}[0-9]{1,3}(/[1-3]?[0-9])?$" )
@@ -120,7 +122,7 @@ class db(object):
 			SUM(CASE WHEN time > NOW() - INTERVAL '6 months' THEN packets ELSE 0 END) AS packets6,
 			SUM(CASE WHEN time > NOW() - INTERVAL '3 months' THEN packets ELSE 0 END) AS packets3,
 			SUM(CASE WHEN time > NOW() - INTERVAL '1 months' THEN packets ELSE 0 END) AS packets1
-			FROM rule_stats GROUP BY rule) AS usage"""
+			FROM rule_stats GROUP BY rule)"""
 	rule_enabled_fmt="""CASE WHEN rules.enabled = FALSE THEN '#:disabled: ' ELSE '' END
 			|| CASE WHEN rules.expires < NOW() then '#:expired: ' ELSE '' END\n"""
 	rule_comment_fmt="""'# id:' || rules.id || ' ord:' || ord
@@ -195,6 +197,8 @@ class db(object):
 		if fw and user:
 			if not self.check_fw_permission():
 				raise ValueError("%s does not have access to firewall %s"%(user, fw))
+		self.last_usage_update = 0
+		self.temp_usage_table_name = None
 	def __del__( self ):
 		self.__conn.close()
 
@@ -417,7 +421,22 @@ class db(object):
 
 		rule_join = self.rule_join
 		if show_usage:
-			rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, self.usage_subq + ' ON rules.id = usage.rule'])
+			age = time.time() - self.last_usage_update
+			if age < 3600:
+				print "Using usage statistics which were cached %d seconds ago" % (age/60+1)
+			else:
+				print "Updating usage statistics cache"
+				t0 = time.time()
+				if self.temp_usage_table_name is not None:
+					self.execute_insert("DROP TABLE \"%s\";" % self.temp_usage_table_name)
+				else:
+					self.temp_usage_table_name = "usage_temp"
+				self.execute_insert("CREATE TEMP TABLE \"%s\" AS " % self.temp_usage_table_name + self.usage_subq )
+				self.last_usage_update=time.time()
+				print "updated in %d sec" % (self.last_usage_update-t0)
+
+			#rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, self.usage_subq + ' AS usage ON rules.id = usage.rule'])
+			rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, ' "%s" as usage ON rules.id = usage.rule' % self.temp_usage_table_name])
 			use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 12 mo: ' || packets12 ||', 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 || E'\\n' ELSE 'USAGE: nothing recorded' END"])
 		if '%s' in use_fmt:
 			use_fmt %= iptables
