@@ -929,9 +929,10 @@ class ipset_list(object):
 				end_address = address
 			end_address = IPy.IP(end_address)
 			a = IPy.IP(address)
-			while a <= end_address:
-				self.set_members[set_name].add(a)
+			self.set_members[set_name].add(a)
+			while a < end_address:
 				a = IPy.IP(a.int() + 1)
+				self.set_members[set_name].add(a)
 		else:
 			if end_address:
 				raise Exception("Range containing a network? %s %s %s" % (set_name, address, end_address))
