@@ -15,6 +15,10 @@ import IPy
 
 import db
 import re
+import shlex
+
+cli_completer_delims = (" \t\n\"';,:|")
+readline.set_completer_delims( cli_completer_delims )
 
 try:
 	import DNS
@@ -201,16 +205,26 @@ class FirewallCmd( cmd.Cmd ):
 			raise
 
 
-	def mkdict( self, line ):
-		args = line.split()
+	def mkdict( self, line, mapping=None ):
+		if type(line) == str:
+			args = shlex.split(line)
+		elif type(line) == list:
+			args = line
+		else:
+			raise Exception("Bad argument in mkdict: line: %r" % line)
 		arg_len = len(args)
 		if arg_len % 2:
 			raise Exception('command requires an even number of arguments, got "%s" which has %s' % ( line, arg_len ) )
-		filter = {}
-		for i in range(arg_len/2):
-			base=2*i
-			filter[args[base]]=args[base+1]
-		return filter
+		d = {}
+		for i in range(0, arg_len, 2):
+			key = args[i]
+			if mapping:
+				if not mapping.has_key(key):
+					raise Exception("Invalid argument type: %s" % key)
+				key = mapping[key]
+
+			d[key]=args[i+1]
+		return d
 
 	def show_dicts( self, dicts, fields=None, prefix='', separator='\n' ):
 		if not fields and dicts:
@@ -245,11 +259,14 @@ class FirewallCmd( cmd.Cmd ):
 
 		print '\n'.join(lines)
 
-	def mkdict_completion( self, completion_list, text, line, begidx, endidx ):
+	def mkdict_completion( self, completers, text, line, begidx, endidx ):
+		completion_list = sorted(completers.keys())
 		possible = []
 		text_len = len(text)
-		l = len(line[:begidx].split())
+		args = shlex.split(line[:begidx])
+		l = len(args)
 		if not l%2:
+			#FIXME: handle our completion functions here
 			return []
 		for i in completion_list:
 			if i[:text_len] == text:
@@ -271,10 +288,10 @@ class FirewallCmd( cmd.Cmd ):
 		pass
 
 	def complete_update( self, *args, **kwargs ):
-		return self.mkdict_completion( ['rule','chain','host','port','user',], *args, **kwargs )
+		return self.mkdict_completion( {'rule':None,'chain':None,'host':None,'port':None,'user':None,'group':None}, *args, **kwargs )
 
 	def complete_add( self, *args, **kwargs ):
-		return self.mkdict_completion( ['rule','chain','host','port','user','group'], *args, **kwargs )
+		return self.mkdict_completion( {'rule':None,'chain':None,'host':None,'port':None,'user':None,'group':None}, *args, **kwargs )
 
 	def _complete_show( self, cmd, text, line, begidx, endidx ):
 		subcmds = { 
@@ -312,7 +329,7 @@ class FirewallCmd( cmd.Cmd ):
 					# This is the 'rule' case
 					if cmd == 'del':
 						return []
-					return self.mkdict_completion( rule_fields, text, line[cmd_len:], begidx-cmd_len, endidx-cmd_len )
+					return self.mkdict_completion(self.get_completers(rule_fields), text, line[cmd_len:], begidx-cmd_len, endidx-cmd_len)
 		else:
 			matches = []
 			tlen = len(text)
@@ -320,11 +337,20 @@ class FirewallCmd( cmd.Cmd ):
 				if i[:tlen] == text:
 					matches.append(i + ' ')
 			return matches
+	def get_completers( self, names ):
+		c = {}
+		for n in names:
+			# FIXME
+			c[n] = None
+		return c
 	def complete_show( self, *args, **kw):
 		return self._complete_show( 'show', *args, **kw )
 
 	def complete_del(self, *args, **kw):
 		return self._complete_show( 'del', *args, **kw )
+
+	def complete_firewall(self, text, line, begidx, endidx ):
+		return self.iface.get_firewalls(name=text+'%')
 	
 	def do_del( self, arg ):
 		"""Delete an item of the given type"""
@@ -542,22 +568,26 @@ class FirewallCmd( cmd.Cmd ):
 		return value
 
 	def add_record( self, arg, update ):
-		args = arg.strip().split(' ',2)
+		args = shlex.split(arg)
+		subcommand = args[0]
+		del args[0]
 		#if ( len(args) != 1 and update == False ) or ( len(args) != 2 and update == True ):
 		#	print 'invalid syntax (arg: %s, len %s)'% (arg,len(args))
 		#	return
-		if len(args) == 2:
-			id_arg = args[1].strip()
-		if args[0] == 'rule':
+		if update:
+			id_arg = args[0]
+			del args[0]
+		args_dict = {}
+		if args:
+			args_dict = self.mkdict(args)
+		if subcommand == 'rule':
 			#if update: raise Exception("Not implemented.")
 
 			if update:
-				self.add_rule(args, update=id_arg, extended=True)
-			elif self.get_bool_from_user('Use extended format'):
-				self.add_rule(args, extended=True)
+				self.add_rule(try_defaults=len(args_dict)>0, update=id_arg, defaults=args_dict, extended=True)
 			else:
-				self.add_rule(args)
-		if args[0] == 'chain':
+				self.add_rule(try_defaults=len(args_dict)>0, defaults=args_dict, extended=args or self.get_bool_from_user('Use extended format'))
+		if subcommand == 'chain':
 			fields = [
 					('name',),
 					('table_name','table',),
@@ -575,7 +605,7 @@ class FirewallCmd( cmd.Cmd ):
 			if vals:
 				self.iface.add_chain( **vals )
 
-		if args[0] == 'interface':
+		if subcommand == 'interface':
 			fields = [
 					('name',),
 					('description',),
@@ -585,7 +615,7 @@ class FirewallCmd( cmd.Cmd ):
 			if vals:
 				self.iface.add_dict( 'interfaces', vals )
 
-		if args[0] == 'real_interface':
+		if subcommand == 'real_interface':
 			fields = [
 					('name',),
 					('pseudo','pseudo interface name',),
@@ -608,7 +638,7 @@ class FirewallCmd( cmd.Cmd ):
 			if vals:
 				self.iface.add_dict( 'real_interfaces', vals )
 
-		if args[0] == 'firewall':
+		if subcommand == 'firewall':
 			if update: raise Exception('Not implemented.')
 			fields = [
 					('name',),
@@ -616,25 +646,16 @@ class FirewallCmd( cmd.Cmd ):
 			if vals:
 				self.iface.add_dict( 'firewalls', vals )
 
-		if args[0] == 'pattern':
+		if subcommand == 'pattern':
 			pass
 
-		if args[0] == 'host':
+		if subcommand == 'host':
 			if update:
-				self.add_host(update=id_arg)
+				self.add_host(update=id_arg, defaults=args_dict, try_defaults=len(args_dict)>0)
 			else:
-				dflt = {}
-				if len(args) == 2:
-					arg=args[1].strip()
-					if db.address.match(arg):
-						dflt['address'] = arg
-					else:
-						dflt['name'] = arg
-				elif len(args) > 2:
-					raise Exception("add_host() could not handle args: %s" % args )
-				self.add_host( defaults = dflt )
+				self.add_host( defaults = args_dict, try_defaults=len(args_dict)>0 )
 
-		if args[0] == 'group':
+		if subcommand == 'group':
 			fields = [
 					('name',),
 					('owner_name','Name of owner',),
@@ -649,6 +670,7 @@ class FirewallCmd( cmd.Cmd ):
 				defaults['name'] = current['name']
 				defaults['owner_name'] = self.iface.get_table( 'users', ['name',], 'id = %s' % current['owner'] )[0][0]
 				defaults['description'] = current['description']
+				defaults.update(args_dict)
 				# FIXME - handle group membership elsewhere?
 
 			else:
@@ -662,34 +684,38 @@ class FirewallCmd( cmd.Cmd ):
 					self.iface.add_host( is_group=True, **vals )
 
 
-		if args[0] == 'port':
-			self.add_port()
+		if subcommand == 'port':
+			self.add_port(defaults=args_dict, try_defaults=len(args_dict)>0)
 
-		if args[0] == 'user':
+		if subcommand == 'user':
 			if update: raise Exception('Not implemented.')
 			fields = [
 					('name',),
 					('a_number','A-Number of user',),
 					('email','email address',),
 				]
-			vals = self.get_from_user( fields )
+			vals = self.get_from_user( fields, defaults=args_dict )
 			if vals:
 				self.iface.add_user( **vals )
 
-	def add_rule( self, args=None, defaults=None, update=None, extended=False ):
+	def add_rule( self, try_defaults=False, defaults=None, update=None, extended=False ):
 		if defaults is None:
-			defaults = {
-					'table_name':'filter',
-					'if_in':None, 'if_out':None,
-					'created_for_name':None,
-					'proto':None,
-					'src':None, 'sport':None,
-					'dst':None, 'dport':None,
-					'target_name':'ACCEPT',	'ord':5000,
-					'expires':(datetime.datetime.today() + datetime.timedelta(365)).strftime('%Y-%m-%d'),
-					'additional':None,
-					#'created_for': 'admin',
-					}
+			defaults = {}
+		print 'add_rule: try_defaults: %s' % try_defaults
+		more_defaults = {
+				'table_name':'filter',
+				'if_in':None, 'if_out':None,
+				'created_for_name':None,
+				'proto':None,
+				'src':None, 'sport':None,
+				'dst':None, 'dport':None,
+				'target_name':'ACCEPT',	'ord':5000,
+				'expires':(datetime.datetime.today() + datetime.timedelta(365)).strftime('%Y-%m-%d'),
+				'additional':None,
+				#'created_for': 'admin',
+				}
+		more_defaults.update(defaults)
+		defaults = more_defaults
 		if update is not None:
 			id_arg = update
 			update=True
@@ -727,7 +753,7 @@ class FirewallCmd( cmd.Cmd ):
 			defaults = {}
 			current = self.iface.get_dict( 'rules', self.iface.columns['rules'], {'id':id_arg,} )
 			if len(current) < 1:
-				raise Exception('No rule with id %s found.' % int(args[1].strip()))
+				raise Exception('No rule with id %s found.' % int(id_arg.strip()))
 			assert len(current) == 1
 			current=current[0]
 			defaults['created_for_name'] = self.iface.get_table( 'users', ['name',], 'id = %s' % current['created_for'] )[0][0]
@@ -761,10 +787,10 @@ class FirewallCmd( cmd.Cmd ):
 				  'target_name': chains,
 				  'created_for_name': [i[0] for i in self.iface.get_table( 'users',['name',] )],
 				  }
-		vals = self.get_from_user( fields, defaults=defaults, complete=complete_vals, check_fields=True )
+		vals = self.get_from_user( fields, defaults=defaults, complete=complete_vals, check_fields=True, try_defaults=try_defaults  )
 		if vals:
 			if update:
-				id = int(args[1])
+				id = int(id_arg)
 				self.iface.add_rule( update=True, id=id, **vals )
 			else:
 				self.iface.add_rule( **vals )
@@ -772,7 +798,7 @@ class FirewallCmd( cmd.Cmd ):
 			self.onecmd( "show rule id %s" % id )
 
 
-	def add_host( self, args=None, defaults=None, update=None ):
+	def add_host( self, args=None, try_defaults=False, defaults=None, update=None ):
 		if update is not None:
 			id_arg = update
 			update=True
@@ -837,7 +863,7 @@ class FirewallCmd( cmd.Cmd ):
 			if not defaults.has_key('endaddress'):
 				defaults['endaddress'] = None
 		complete_vals = { 'owner_name': [i[0] for i in self.iface.get_table( 'users',['name',] )] }
-		vals = self.get_from_user( fields, complete=complete_vals, defaults=defaults )
+		vals = self.get_from_user( fields, complete=complete_vals, defaults=defaults, try_defaults=try_defaults)
 		if vals:
 			if update:
 				self.iface.add_host( update=True, id=id_arg, **vals )
@@ -847,7 +873,7 @@ class FirewallCmd( cmd.Cmd ):
 		#id = self.iface.get_host_id( vals['host']) ...
 		return vals
 
-	def add_port( self, defaults=None, update=None ):
+	def add_port( self, try_defaults=False, defaults=None, update=None ):
 		fields = [
 				('name',),
 				('port','port',),
@@ -858,7 +884,7 @@ class FirewallCmd( cmd.Cmd ):
 			defaults = {}
 		if not defaults.has_key('endport'):
 			defaults['endport'] = None
-		vals = self.get_from_user( fields, defaults=defaults )
+		vals = self.get_from_user( fields, defaults=defaults, try_defaults=try_defaults  )
 		if vals:
 			self.iface.add_port( **vals )
 		return vals
@@ -999,6 +1025,8 @@ class FirewallCmd( cmd.Cmd ):
 			print '\n'.join( [i[0] for i in rules] )
 		elif subcmd in ['firewall','firewalls']:
 			print '\n'.join(self.iface.get_firewalls())
+		elif subcmd == 'table':
+			print self.iface.get_tables()
 		else:
 			raise Exception("Subcommand %r not recognized." % subcmd) 
 
@@ -1062,8 +1090,9 @@ class FirewallCmd( cmd.Cmd ):
 	def remove_last( self ):
 		readline.remove_history_item(readline.get_current_history_length() - 1)
 
-	def get_from_user( self, input_fields, defaults = None, complete = None, check_fields = False ):
+	def get_from_user( self, input_fields, defaults = None, complete = None, check_fields = False, try_defaults = False ):
 		completion_list = None
+		print 'get_from_user: try_defaults: %s' % try_defaults
 
 		if not complete:
 			complete={}
@@ -1099,23 +1128,26 @@ class FirewallCmd( cmd.Cmd ):
 		fmt = '%s [%s]: '
 		accept = False
 		while not accept:
-			for name, prompt in fields:
-				default = ''
-				if complete.has_key(name):
-					completion_list = complete[name]
-				else:
-					completion_list = None
-				if input.has_key(name):
-					default=input[name]
+			print try_defaults
+			if not try_defaults:
+				for name, prompt in fields:
+					default = ''
+					if complete.has_key(name):
+						completion_list = complete[name]
+					else:
+						completion_list = None
+					if input.has_key(name):
+						default=input[name]
 
-				i = raw_input( fmt % (prompt,default) )
-				if i:
-					self.remove_last()
-				if i.strip():
-					value=i.strip()
-					if check_fields and self.field_checks.has_key(name):
-						value = self.field_checks[name](value)
-					input[name] = value
+					i = raw_input( fmt % (prompt,default) )
+					if i:
+						self.remove_last()
+					if i.strip():
+						value=i.strip()
+						if check_fields and self.field_checks.has_key(name):
+							value = self.field_checks[name](value)
+						input[name] = value
+			try_defaults = False
 			sys.stdout.write('\n*********\nPlease check your values:\n')
 			for name, prompt in fields:
 				if input.has_key(name):

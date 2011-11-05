@@ -442,7 +442,7 @@ class db(object):
 
 			#rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, self.usage_subq + ' AS usage ON rules.id = usage.rule'])
 			rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, ' "%s" as usage ON rules.id = usage.rule' % self.temp_usage_table_name])
-			use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 12 mo: ' || packets12 ||', 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 || E'\\n' ELSE 'USAGE: nothing recorded' END"])
+			use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 12 mo: ' || packets12 ||', 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 ELSE 'USAGE: nothing recorded' END || E'\\n'"])
 		if '%s' in use_fmt:
 			use_fmt %= iptables
 
@@ -455,6 +455,9 @@ class db(object):
 			return self.get_dict( rule_join, columns, ' AND '.join(where_items), self.rule_order)
 		else:
 			return self.get_table( rule_join, columns, ' AND '.join(where_items), self.rule_order, distinct=False )
+
+	def get_tables(self):
+		return self.get_dict( 'tables', ('id','name','description',) )
 	
 	def get_chain_id(self, name, table_name=None, table_id=False):
 		check_input_str( name )
@@ -790,10 +793,18 @@ class db(object):
 
 		return self.get_dict("hosts_to_groups join hosts on hosts_to_groups.gid  = hosts.id", columns, where)
 
-	def get_firewalls(self):
-		if self.user:
-			return [i[0] for i in self.execute_query("select f.name from firewalls as f join permissions as p on f.id = p.fw_id and p.user_id=%s;", [self.user])];
-		return [i[0] for i in self.execute_query("select f.name from firewalls as f")];
+	def get_firewalls(self, name=None):
+		q = "select f.name from firewalls as f"
+		where = []
+		where_args = []
+		if name:
+			where.append('name LIKE %s')
+			where_args.append(name)
+		#if self.user:
+		#	return [i[0] for i in self.execute_query("select f.name from firewalls as f join permissions as p on f.id = p.fw_id and p.user_id=%s;", [self.user])];
+		if where:
+			q = q + " WHERE " + " AND ".join(where)
+		return [i[0] for i in self.execute_query(q,where_args)];
 	def check_fw_permission(self):
 		if self.fw and self.user:
 			r = self.execute_query("select id from permissions where user_id = %s and fw_id = %s;", [self.user, self.fw]);
