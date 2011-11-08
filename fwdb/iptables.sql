@@ -156,6 +156,7 @@ CREATE TABLE hosts (
 	owner integer REFERENCES users(id) NOT NULL,
 	description varchar,
 	is_group boolean default FALSE,
+	last_check timestamptz default NOW() NOT NULL,
 	CHECK ( ( (host IS NOT NULL AND host_end IS NULL )
 		       	OR ( host IS NOT NULL AND masklen(host) = 32 AND masklen(host_end) = 32
 			       	AND host < host_end ) AND is_group = FALSE )
@@ -184,6 +185,7 @@ CREATE TABLE hosts_to_groups (
 	-- we want gid == hid if this is an individual host, see trigger below
 	gid integer references hosts(id) NOT NULL,
 	hid integer references hosts(id) NOT NULL,
+	expires timestamptz NOT NULL,
 	UNIQUE (hid,gid)
 );
 

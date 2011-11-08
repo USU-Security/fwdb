@@ -560,9 +560,16 @@ class db(object):
 			where['is_group'] = is_group
 		if gid is not None:
 			where['gid'] = gid
-		return self.get_dict('hosts left join hosts_to_groups on hosts.id = hid', ['hosts.id', 'name', 'host', 'host_end', 'description', 'is_group', 'owner'], where, distinct=True)
+		return self.get_dict('hosts left join hosts_to_groups on hosts.id = hid', ['hosts.id', 'name', 'host', 'host_end', 'description', 'is_group', 'owner', 'last_check',], where, distinct=True)
 
-	def add_host_to_group( self, group_id, host_id=None, hostname=None ):
+	def add_host_to_group( self, group_id, host_id=None, hostname=None, expires=None ):
+		if expires is None:
+			expires='+365'
+		if expires[0] == '+':
+			days = int(expires[1:])
+			expires = (datetime.datetime.today() + datetime.timedelta(days)).strftime('%Y-%m-%d')
+		else:
+			expires = expires
 		if not host_id:
 			host_id = self.get_host_id(hostname = hostname)
 		host = self.get_host(host_id)
@@ -575,7 +582,7 @@ class db(object):
 		if d:
 			raise Exception("Cannot mix hosts and networks: gid: %s, host: %s, existing: %s" % (group_id, host, d) )
 
-		self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,} )
+		self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,'expires':expires} )
 			
 		"""# I decided to put this off until someone actually needs it; will need to fix del_h2g, too
 		self.begin_transaction()
@@ -719,7 +726,8 @@ class db(object):
 				value_lst.append('%s = %s' % (i,v) )
 		value_stmt = ' AND '.join(value_lst)
 		sql = 'SELECT %s FROM %s WHERE %s' % (','.join(columns),tblname,value_stmt)
-	def get_ipset(self, group=None):
+	def get_ipset(self, group=None, allow_expired=False):
+		expired_records = False
 		from_def = """hosts_to_groups as h2g
 				join hosts as groups on groups.id = h2g.gid
 				join hosts on h2g.hid = hosts.id"""
@@ -738,11 +746,15 @@ class db(object):
 			whereclause['groups.id'] = list(valid_hosts)
 		if group:
 			whereclause['h2g.gid'] = int(group)
-		data = self.get_dict( from_def, ['groups.name', 'groups.id', 'hosts.name', 'hosts.id', 'hosts.host', 'hosts.host_end',],
+		data = self.get_dict( from_def, ['groups.name', 'groups.id', 'hosts.name', 'hosts.id', 'hosts.host', 'hosts.host_end',('h2g.expires < now() as expired','expired',)],
 				whereclause, order_by='groups.name, hosts.id' )
 		for d in data:
+			if d['expired']:
+				print 'WARNING: host %s has expired from group %s' % (d['hosts.name'],d['groups.name'],)
+				expired_records=True
 			sets.add(d['groups.name'],d['hosts.host'],d['hosts.host_end'])
-
+		if expired_records and not allow_expired:
+			raise Exception("Please update or delete expired host to group entries")
 		return sets
 	def get_chains(self, builtin=None, name=None, cid=None):
 		where = {}

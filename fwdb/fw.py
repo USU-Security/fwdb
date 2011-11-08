@@ -911,30 +911,38 @@ class FirewallCmd( cmd.Cmd ):
 
 		valid_hostnames = [ i[0] for i in self.iface.get_table('hosts',['name'],whereclause='is_group=FALSE') ]
 
-		next = '?___'
-		while next.strip():
+		nextline = '?___'
+		while nextline.strip():
 			try:
-				if next[0] == '?':
+				parts = nextline.split()
+				if len(parts) == 1:
+					host = parts[0]
+					time = None
+				elif len(parts) == 2:
+					host, time = parts
+				else:
+					raise Exception("Bad input: expecting 'host [expiration]': %r" % parts)
+				if host[0] == '?':
 					hosts = self.iface.get_dict( 'hosts_to_groups join hosts on hosts_to_groups.hid = hosts.id',
-						['hosts.name','hosts.host','hosts.host_end',],
+						['hosts.name','hosts.host','hosts.host_end','hosts_to_groups.expires',],
 						{'hosts_to_groups.gid':current_id,}
 						)
-					self.show_dicts(hosts,[('hosts.name','name',),('hosts.host','address',),('hosts.host_end','end address (if range)',),] )
+					self.show_dicts(hosts,[('hosts.name','name',),('hosts.host','address',),('hosts.host_end','end address (if range)',), ('hosts_to_groups.expires','Expires from group'),] )
 					sys.stdout.write('Enter hostname to add or -hostname to remove, ? to list, or a blank line when finished.\n')
 					completion_list = [ '-' + h['hosts.name'] for h in hosts ]
 					completion_list.extend(valid_hostnames)
 					completion_list.append('?')
-				elif next[0] == '-':
-					self.iface.del_host_to_group( host_id=self.iface.get_host_id(next[1:]), group_id=current_id )
+				elif host[0] == '-':
+					self.iface.del_host_to_group( host_id=self.iface.get_host_id(host[1:]), group_id=current_id )
 				else:
-					id = self.iface.get_host_id(self.check_host(next))
-					self.iface.add_host_to_group( host_id=id, group_id=current_id )
+					id = self.iface.get_host_id(self.check_host(host))
+					self.iface.add_host_to_group( host_id=id, group_id=current_id, expires=time )
 
 			except db.NotFound,e:
 				print repr(e)
 			try:
-				next = raw_input(prompt)
-				if next.strip():
+				nextline = raw_input(prompt)
+				if nextline.strip():
 					self.remove_last()
 			except EOFError,e:
 				print '^D'
