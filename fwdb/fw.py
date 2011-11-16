@@ -350,7 +350,7 @@ class FirewallCmd( cmd.Cmd ):
 		return self._complete_show( 'del', *args, **kw )
 
 	def complete_firewall(self, text, line, begidx, endidx ):
-		return self.iface.get_firewalls(name=text+'%')
+		return [ i['name'] for i in self.iface.get_firewalls(name=text+'%') ]
 	
 	def do_del( self, arg ):
 		"""Delete an item of the given type"""
@@ -1032,7 +1032,7 @@ class FirewallCmd( cmd.Cmd ):
 
 			print '\n'.join( [i[0] for i in rules] )
 		elif subcmd in ['firewall','firewalls']:
-			print '\n'.join(self.iface.get_firewalls())
+			self.show_dicts(self.iface.get_firewalls())
 		elif subcmd == 'table':
 			print self.iface.get_tables()
 		else:

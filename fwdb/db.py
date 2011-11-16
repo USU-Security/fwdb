@@ -187,10 +187,12 @@ class db(object):
 		# FIXME!
 		self.set_firewall(fwname=fw)
 		self.user = None
-		if user:
-			r = self.execute_query("select id from users where name = %s or a_number = %s;", [user, user]);
-			if r:
-				self.user = r[0][0]
+		#maybe we will do permissions later
+		#if user:
+		#	r = self.execute_query("select id from users where name = %s or a_number = %s;", [user, user]);
+		#	if r:
+		#		self.user = r[0][0]
+		self.user = user
 		if fw and user:
 			if not self.check_fw_permission():
 				raise ValueError("%s does not have access to firewall %s"%(user, fw))
@@ -278,7 +280,11 @@ class db(object):
 			elif has_wildcard(v):
 				where_items.append("%s like '%s'" % (i,str(v)) )
 			else:
-				where_items.append("%s = '%s'" % (i,str(v)) )
+				v = str(v)
+				comparison = '='
+				if '%' in v:
+					comparison = 'ILIKE'
+				where_items.append("%s %s '%s'" % (i, comparison, v) )
 		return where_items
 	
 	def get_dict( self, table, columns, d=None, conj = ' AND ', order_by=None, distinct = False):
@@ -364,7 +370,7 @@ class db(object):
 			return id
 		raise Exception('FIXME: Invalid port')
 	def get_rules( self, host=None, port=None, src=None, sport=None, dst=None, dport=None, chain=None, id=None,
-			iptables='iptables', ipt_restore=False, table=False, target=None, andwhere=None, columns=None,
+			iptables='iptables', ipt_restore=False, table=False, target=None, andwhere=None, columns=None,fw_id=None,
 			expired=None, show_usage=False, enabled=None, append_default_columns=False, asdict=False):
 		where_items = []
 		if ipt_restore:
@@ -412,14 +418,16 @@ class db(object):
 			where_items.extend(self.get_where({'rules.id':id}))
 		if table is not False:
 			where_items.append( 'chain.tbl = %d' % int(table))
-		if self.fw:
-			valid_chains = self.get_fw_chains()
+		if fw_id is None and self.fw:	
+			fw_id = self.fw
+		if fw_id:
+			valid_chains = self.get_fw_chains(fw_id=fw_id)
 			where_items.append( " (chain.id in ("+",".join(map(str, valid_chains)) + "))")
 			if not ipt_restore:
 				use_fmt = self.rule_full_fmt
 			# FIXME: do we need to do more sanity checking on interfaces?
-			where_items.append('(if_in.firewall_id = %s or rules.if_in is NULL)' % self.fw)
-			where_items.append('(if_out.firewall_id = %s or rules.if_out is NULL)' % self.fw)
+			where_items.append('(if_in.firewall_id = %s or rules.if_in is NULL)' % fw_id)
+			where_items.append('(if_out.firewall_id = %s or rules.if_out is NULL)' % fw_id)
 		if andwhere:
 			where_items.append( andwhere )
 			
@@ -648,6 +656,8 @@ class db(object):
 			ids=[ids,]
 		for id in ids:
 			self.execute_insert("UPDATE rules SET enabled=TRUE where id=%s", (id,) )
+	def extend_rule(self, ids, days=365):
+		self.execute_insert("UPDATE rules SET expires = now() + interval '%s days' where %s"%(int(days), " and ".join(self.get_where({'id':ids}))))
 
 	def add_rule(self,update=False,id=_default,created_for_name=_default,chain_name=_default,table_name=_default,chain_id=_default,if_in=_default,if_out=_default,proto=_default,src=_default,sport=_default,
 			dst=_default,dport=_default,target_id=_default,target_name=_default,additional=_default,ord=_default,description=_default,expires=_default):
@@ -768,15 +778,17 @@ class db(object):
 			where['id'] = self.get_fw_chains()
 		return self.get_dict('chains', ['id', 'name', 'builtin', 'description'], where)
 
-	def get_fw_chains(self):
-		patterns = self.execute_query("select c.pattern from chain_patterns as c JOIN firewalls_to_chain_patterns AS f2c ON f2c.pat = c.id WHERE f2c.fw = %s;", [self.fw])
+	def get_fw_chains(self, fw_id = None):
+		if fw_id is None:
+			fw_id = self.fw
+		patterns = self.execute_query("select c.pattern from chain_patterns as c JOIN firewalls_to_chain_patterns AS f2c ON f2c.pat = c.id WHERE f2c.fw = %s;", [fw_id])
 		if patterns:
 			chain_patterns_where = "(chain.builtin=true OR "+" OR ".join(["chain.name LIKE '%s'"%i[0] for i in patterns])+")"
 		else:
 			raise Exception("No patterns found for this firewall.")
 		rule_tree = {}
 		#get a list of all the rules that could apply to us
-		for c, t in self.execute_query("select r.chain,r.target from rules as r left join real_interfaces as i on r.if_in=i.pseudo left join real_interfaces as i2 on r.if_out=i2.pseudo where i.firewall_id is null and i2.firewall_id is null or (i.firewall_id = %s or i2.firewall_id=%s) group by chain, target;", [self.fw, self.fw]):
+		for c, t in self.execute_query("select r.chain,r.target from rules as r left join real_interfaces as i on r.if_in=i.pseudo left join real_interfaces as i2 on r.if_out=i2.pseudo where i.firewall_id is null and i2.firewall_id is null or (i.firewall_id = %s or i2.firewall_id=%s) group by chain, target;", [fw_id, fw_id]):
 			if c not in rule_tree:
 				rule_tree[c] = set()
 			rule_tree[c].add(t)
@@ -790,11 +802,17 @@ class db(object):
 				walkrules(i)
 				ret.add(i)
 		return ret
-	def get_fw_groups(self):
+	def get_fw_groups(self, fw_id=None, is_group=True):
+		if is_group:
+			src_where = "src.is_group=true"
+			dst_where = "dst.is_group=true"
+		else:
+			src_where = None
+			dst_where = None
 		ret = set()
-		for r in self.get_rules(andwhere='src.is_group=true', columns=['src.id']):
+		for r in self.get_rules(andwhere=src_where, columns=['src.id'], fw_id=fw_id):
 			ret.add(r[0])
-		for r in self.get_rules(andwhere='dst.is_group=true', columns=['dst.id']):
+		for r in self.get_rules(andwhere=dst_where, columns=['dst.id'], fw_id=fw_id):
 			ret.add(r[0])
 		return ret
 	def get_groups(self, host_id = None, columns = None):
@@ -805,20 +823,19 @@ class db(object):
 
 		return self.get_dict("hosts_to_groups join hosts on hosts_to_groups.gid  = hosts.id", columns, where)
 
-	def get_firewalls(self, name=None):
+	def get_firewalls(self, name=None, columns = None):
+		# Not used if 'columns' are specified
 		q = "select f.name from firewalls as f"
-		where = []
-		where_args = []
+		where = {}
 		if name:
-			where.append('name LIKE %s')
-			where_args.append(name)
-		#if self.user:
-		#	return [i[0] for i in self.execute_query("select f.name from firewalls as f join permissions as p on f.id = p.fw_id and p.user_id=%s;", [self.user])];
-		if where:
-			q = q + " WHERE " + " AND ".join(where)
-		return [i[0] for i in self.execute_query(q,where_args)];
+			where['name'] = name
+		if columns is None:
+			columns = ['name',]
+		return self.get_dict(table='firewalls as f', columns = columns, d=where)
+
 	def check_fw_permission(self):
 		if self.fw and self.user:
+			return True
 			r = self.execute_query("select id from permissions where user_id = %s and fw_id = %s;", [self.user, self.fw]);
 			if r:
 				return True
@@ -830,8 +847,16 @@ class db(object):
 		if email: where['email'] = email
 		if a_number: where['a_number'] = a_number
 		return self.get_dict('users', ['id', 'name', 'email', 'a_number'], where)
-		
-				
+	def get_firewalls_by_group(self, gid):
+		# FIXME: holy inefficiency, batman! (although, there shouldn't be much data here)
+		ret = []
+		for f in self.get_firewalls(columns=('id','name')):
+			if gid in self.get_fw_groups(f['id'], is_group=False):
+				ret.append(f)
+		return ret
+
+
+
 
 
 
