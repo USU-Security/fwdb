@@ -118,11 +118,14 @@ class db(object):
 		LEFT OUTER JOIN real_interfaces AS if_in ON if_in.pseudo = rules.if_in
 		LEFT OUTER JOIN real_interfaces AS if_out ON if_out.pseudo = rules.if_out\n"""
 	usage_subq="""(SELECT rule,
-			SUM(CASE WHEN time > NOW() - INTERVAL '12 months' THEN packets ELSE 0 END) AS packets12,
+			--SUM(CASE WHEN time > NOW() - INTERVAL '12 months' THEN packets ELSE 0 END) AS packets12,
 			SUM(CASE WHEN time > NOW() - INTERVAL '6 months' THEN packets ELSE 0 END) AS packets6,
 			SUM(CASE WHEN time > NOW() - INTERVAL '3 months' THEN packets ELSE 0 END) AS packets3,
 			SUM(CASE WHEN time > NOW() - INTERVAL '1 months' THEN packets ELSE 0 END) AS packets1
-			FROM rule_stats GROUP BY rule)"""
+			FROM rule_stats
+			--WHERE time > NOW() - INTERVAL '12 months' -- needed to allow us to use our time index
+			WHERE time > NOW() - INTERVAL '6 months' -- 6 months instead of 12 took the query from ~9 seconds to ~2 seconds...
+			GROUP BY rule)"""
 	rule_enabled_fmt="""CASE WHEN rules.enabled = FALSE THEN '#:disabled: ' ELSE '' END
 			|| CASE WHEN rules.expires < NOW() then '#:expired: ' ELSE '' END\n"""
 	rule_comment_fmt="""'# id:' || rules.id || ' ord:' || ord
@@ -450,7 +453,8 @@ class db(object):
 
 			#rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, self.usage_subq + ' AS usage ON rules.id = usage.rule'])
 			rule_join = ' LEFT OUTER JOIN '.join([self.rule_join, ' "%s" as usage ON rules.id = usage.rule' % self.temp_usage_table_name])
-			use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 12 mo: ' || packets12 ||', 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 ELSE 'USAGE: nothing recorded' END || E'\\n'"])
+			#use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 12 mo: ' || packets12 ||', 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 ELSE 'USAGE: nothing recorded' END || E'\\n'"])
+			use_fmt = ' || '.join([use_fmt, self.rule_enabled_fmt, "CASE WHEN packets1 IS NOT NULL THEN '# USAGE -- packets in 6 mo: '|| packets6 || ', 3 mo: ' || packets3 || ', 1 mo: '||packets1 ELSE 'USAGE: nothing recorded' END || E'\\n'"])
 		if '%s' in use_fmt:
 			use_fmt %= iptables
 
