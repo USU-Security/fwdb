@@ -23,9 +23,14 @@ options.add_argument('-n', '--dry-run', help="Generate the rules, and return the
 options.add_argument('-p', '--push', help="Activate the current rules. Requires a hash argument to verify they are the rules you are thinking of")
 options.add_argument('-u', '--user', help="Who to log did the changes. Defaults to USERNAME_NOT_GIVEN")
 options.add_argument('-d', '--description', help='The description of the update. Asks user if not given')
+options.add_argument('-s', '--only-sets', help='Only update sets, not rules', action='store_true')
+options.add_argument('-e', '--allow-expired', help='Allow expired sets', action='store_true')
 options.add_argument('--scriptdir', help='The directory to put scripts in.', default='/root/firewall_scripts')
 options.add_argument('--dbuser', help='The database user')
 args = options.parse_args()
+
+only_sets = args.only_sets
+allow_expired = args.allow_expired
 
 if args.user:
 	username = args.user
@@ -72,6 +77,32 @@ recipient='firewall-admins@lists.usu.edu'
 if not scriptdir: scriptdir='/root/firewall_scripts'
 
 iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='%s'"%dbuser, fw = firewall_id)
+
+valid_chains = iface.get_fw_chains()
+chain_patterns_where = " (chain.id in ("+",".join(map(str, valid_chains))+")) "
+
+suffix = "%s-%s" % (DATE, username)
+
+backupdir="%s/backups" % scriptdir
+
+currdir = "%s/current" % scriptdir
+newdir = "%s/new-%s" % (scriptdir,suffix)
+olddir="%s/pre-%s" % (backupdir,suffix)
+faileddir="%s/failed-%s" % (backupdir, suffix)
+
+iptname="%s/iptables.fwdb" % newdir
+ipsname="%s/ipsets.fwdb" % newdir
+
+curriptname="%s/iptables.fwdb" % currdir
+curripsname="%s/ipsets.fwdb" % currdir
+
+mailname="%s/message" % newdir
+
+tmpiptname="%s/tempipt" % (newdir)
+tmpsetname="%s/tempset" % (newdir)
+
+setstore = "%s/ipset.save" % newdir
+iptstore = "%s/iptables.save" % newdir
 
 def write_stats( iptables_save_file ):
 	print "\t\tgathering statistics..."
@@ -156,7 +187,7 @@ def update_set(old, new, outfile=None):
 def update_sets( delete=False, oldcfg=None, newcfg=None, outfile=None ):
 	global iface
 	if oldcfg is None: oldcfg = db.ipset_list(load_file=None)
-	if newcfg is None: newcfg = iface.get_ipset()
+	if newcfg is None: newcfg = iface.get_ipset(allow_expired=allow_expired)
 
 	old_set_names = set(oldcfg.sets)
 	new_set_names = set(newcfg.sets)
@@ -198,49 +229,9 @@ def check_dirs( dirs ):
 		if not os.path.isdir(d):
 			os.makedirs(d)
 
-def main():
+def generate_ruleset():
 	global iface
-	global description
-	global push
-	global dry_run
-	suffix = "%s-%s" % (DATE, username)
-
-	backupdir="%s/backups" % scriptdir
-
-	currdir = "%s/current" % scriptdir
-	newdir = "%s/new-%s" % (scriptdir,suffix)
-	olddir="%s/pre-%s" % (backupdir,suffix)
-	faileddir="%s/failed-%s" % (backupdir, suffix)
-
-	iptname="%s/iptables.fwdb" % newdir
-	ipsname="%s/ipsets.fwdb" % newdir
-
-	curriptname="%s/iptables.fwdb" % currdir
-	curripsname="%s/ipsets.fwdb" % currdir
-
-	mailname="%s/message" % newdir
-
-	tmpiptname="%s/tempipt" % (newdir)
-	tmpsetname="%s/tempset" % (newdir)
-
-	setstore = "%s/ipset.save" % newdir
-	iptstore = "%s/iptables.save" % newdir
-
-	check_dirs( [ currdir, backupdir, scriptdir, newdir, ] )
-
-	print "calculating set changes:"
-	tmpset = open(tmpsetname, 'w')
-	oldcfg, newcfg, sets_changed = update_sets( outfile=tmpset )
-	tmpset.close()
-	ipsfile = open(ipsname, "w")
-	ipsfile.write(str(newcfg))
-	ipsfile.close()
-
-	print "generating ruleset:"
 	new = open(iptname,'w')
-
-	valid_chains = iface.get_fw_chains()
-	chain_patterns_where = " (chain.id in ("+",".join(map(str, valid_chains))+")) "
 
 	tables_q = '''SELECT tables.name,tables.id FROM tables;'''
 	tables = iface.execute_query(tables_q)
@@ -279,29 +270,53 @@ def main():
 	#new.write("\nEND_OF_IPTABLES_RULES\n")
 	new.close()
 
-	#generate hash
+def genhash(*args):
+	# hash the files represented by the given filenames
 	h = hashlib.sha512()
-	h.update(open(iptname).read())
-	h.update(open(ipsname).read())
-	rule_hash = h.hexdigest()
+	for filename in args:
+		f = open(filename)
+		h.update(f.read())
+		f.close()
+	return h.hexdigest()
+
+if __name__ == '__main__':
+
+	check_dirs( [ currdir, backupdir, scriptdir, newdir, ] )
+
+	print "calculating set changes:"
+	tmpset = open(tmpsetname, 'w')
+	oldcfg, newcfg, sets_changed = update_sets( outfile=tmpset )
+	tmpset.close()
+	ipsfile = open(ipsname, "w")
+	ipsfile.write(str(newcfg))
+	ipsfile.close()
+
+	changed = False
+
+	if not only_sets:
+		print "generating ruleset:"
+		generate_ruleset()
+
+		#generate hash
+		rule_hash = genhash(iptname, ipsname)
 	
-	print "\tdone.\ncomparing to current ruleset:"
+		print "\tdone.\ncomparing to current ruleset:"
 
-	tmpdiff_fd,tmpdiff_name = tempfile.mkstemp()
-	os.close(tmpdiff_fd)
+		tmpdiff_fd,tmpdiff_name = tempfile.mkstemp()
+		os.close(tmpdiff_fd)
 
-	tmpdiff = open(tmpdiff_name,'w')
+		tmpdiff = open(tmpdiff_name,'w')
 
-	# FIXME: this is probably bad form
-	#changed = os.system("diff -u '%s' '%s'" % (scriptname, tmpfile))
-	changed = subprocess.call(["/usr/bin/diff", '-u', curriptname, iptname,], stdout=tmpdiff)
+		# FIXME: this is probably bad form
+		#changed = os.system("diff -u '%s' '%s'" % (scriptname, tmpfile))
+		changed = subprocess.call(["/usr/bin/diff", '-u', curriptname, iptname,], stdout=tmpdiff)
 
-	tmpdiff.close()
+		tmpdiff.close()
 
-	#tmpdiff = open(tmpdiff_name,'r')
-	#for l in tmpdiff:
-	#	sys.stdout.write(l)
-	#tmpdiff.close()
+		#tmpdiff = open(tmpdiff_name,'r')
+		#for l in tmpdiff:
+		#	sys.stdout.write(l)
+		#tmpdiff.close()
 
 	if not (changed or sets_changed):
 		print '\tconfiguration unchanged.'
@@ -312,23 +327,27 @@ def main():
 		# if the rules are expiring with this run, or had expired
 		# before
 		# New approach... You may not update rules if some are expired; you must handle all of the rules externally
-		expired_rules = iface.get_rules( andwhere=chain_patterns_where, expired=True, enabled=True )
+		if not only_sets:
+			expired_rules = iface.get_rules( andwhere=chain_patterns_where, expired=True, enabled=True )
 
-		if expired_rules:
-			print "----EXPIRED RULES----"
-			for r in expired_rules:
-				print r[0]
-			print "---------------------"
-			expired_rules = [ i[1] for i in expired_rules ]
-			expired_rules = sorted(list(set(expired_rules)))
-			print '\n'.join(map(str,expired_rules))
-			raise Exception("The following expiring rules need to be handled: %s" % " ".join(map(str,expired_rules)))
+			if expired_rules:
+				print "----EXPIRED RULES----"
+				for r in expired_rules:
+					print r[0]
+				print "---------------------"
+				expired_rules = [ i[1] for i in expired_rules ]
+				expired_rules = sorted(list(set(expired_rules)))
+				print '\n'.join(map(str,expired_rules))
+				raise Exception("The following expiring rules need to be handled: %s" % " ".join(map(str,expired_rules)))
 		if dry_run:
 			print open(tmpsetname).read()
-			print open(tmpdiff_name).read()
-			print "======Hash: %s======"%rule_hash
+			if not only_sets:
+				print open(tmpdiff_name).read()
+				print "======Hash: %s======"%rule_hash
 		else:
-			if push is None:
+			if only_sets:
+				x = 'y'
+			elif push is None:
 				os.system('[ -x /usr/bin/colordiff.disabled ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpsetname, tmpdiff_name,) )
 				x = raw_input('Load new configuration [y/N]: ')
 			elif push == rule_hash:
@@ -350,9 +369,10 @@ def main():
 				msg.extend(tmpset.readlines())
 				tmpset.close()
 
-				tmpdiff = open(tmpdiff_name,'r+')
-				msg.extend(tmpdiff.readlines())
-				
+				if not only_sets:
+					tmpdiff = open(tmpdiff_name,'r+')
+					msg.extend(tmpdiff.readlines())
+					
 				message = open(mailname,'w+')
 				message.writelines( msg )
 
@@ -366,9 +386,11 @@ def main():
 				print "ipset update:"
 				update_sets(newcfg = newcfg)
 
-				print '\tloading new rules:'
-				save = os.system( 'iptables-save -c > %s' % tmpiptname )
-				status = os.system( 'iptables-restore < %s' % iptname )
+				status = False
+				if not only_sets:
+					save = os.system( 'iptables-save -c > %s' % tmpiptname )
+					print '\tloading new rules:'
+					status = os.system( 'iptables-restore < %s' % iptname )
 				if status:
 					print '\t\tFAILED! -- loading last working ruleset (storing failed set in %s)' % failedname
 					if save:
@@ -383,7 +405,7 @@ def main():
 						os.system('iptables -F')
 					sys.exit(1)
 				else:
-					if not save:
+					if not save and not only_sets:
 						try:
 							write_stats(tmpiptname)
 						except Exception, e:
@@ -391,8 +413,14 @@ def main():
 							#the update to fail
 							print e
 							print '\t\tFailed to store statistics.'
-					else:
+					elif not only_sets:
 						print "\t\tiptables-save failed, unable to collect statistics"
+
+					if not only_sets:
+						print "Final ipset update:"
+						update_sets(newcfg = newcfg, delete=True)
+						print "done."
+				
 					os.system( 'iptables-save > %s' % iptstore )
 					os.system( 'ipset --save > %s' % setstore )
 					print newdir, olddir
@@ -400,17 +428,10 @@ def main():
 					os.rename(newdir, currdir)
 					print '\tdone.'
 
-					print "Final ipset update:"
-					update_sets(newcfg = newcfg, delete=True)
-					print "done."
-				
 			else:
 				print 'NOT updating!'
 				exit(1)
 
 
 	del iface
-
-if __name__ == '__main__':
-	main()
 
