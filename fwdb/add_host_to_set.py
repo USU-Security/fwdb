@@ -45,6 +45,7 @@ if __name__ == '__main__':
 	BLOCK_DAYS = args['block_days'] if args.has_key('block_days') else DEFAULT_BLOCK_DAYS
 	OWNER = args['owner']
 	DESCRIPTION = args['description']
+	os.environ['DESCRIPTION'] = DESCRIPTION
 
 
 	group = iface.get_hosts( name=SET_NAME, is_group=True )
