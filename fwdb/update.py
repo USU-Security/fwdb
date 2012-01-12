@@ -19,6 +19,7 @@ import hashlib
 
 options = argparse.ArgumentParser(description="Synchronize the firewall to the database")
 options.add_argument('-f', '--firewall', help="The firewall in the database to sync rules to (defaults to this host)")
+options.add_argument('-m', '--mailto', help="Send a notification to this email address", default='firewall-admins@lists.usu.edu')
 options.add_argument('-n', '--dry-run', help="Generate the rules, and return the diff, but do not activate them", action='store_true')
 options.add_argument('-p', '--push', help="Activate the current rules. Requires a hash argument to verify they are the rules you are thinking of")
 options.add_argument('-u', '--user', help="Who to log did the changes. Defaults to USERNAME_NOT_GIVEN")
@@ -32,6 +33,10 @@ args = options.parse_args()
 only_sets = args.only_sets
 allow_expired = args.allow_expired
 
+mailto = args.mailto
+if '@' not in mailto:
+	raise Exception("Invalid mailto address")
+
 if args.user:
 	username = args.user
 else:
@@ -40,7 +45,13 @@ if args.firewall:
 	firewall_id = args.firewall
 else:
 	firewall_id = socket.gethostname()
+
 description = args.description
+if os.environ.has_key('DESCRIPTION'):
+	if not description:
+		description = ''
+	description += os.environ['DESCRIPTION']
+
 dry_run = args.dry_run
 push = args.push
 scriptdir=args.scriptdir
@@ -73,7 +84,7 @@ else:
 user_string = '%s@%s' % (username, ssh_client)
 
 #scriptdir='/var/lib/iptables'
-recipient='firewall-admins@lists.usu.edu'
+mailto='firewall-admins@lists.usu.edu'
 if not scriptdir: scriptdir='/root/firewall_scripts'
 
 iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='%s'"%dbuser, fw = firewall_id)
@@ -377,7 +388,7 @@ if __name__ == '__main__':
 				message.writelines( msg )
 
 				message.seek(0)
-				r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, recipient,], stdin=message)
+				r = subprocess.call(["mail", '-s', 'Change on %s' % firewall_id, mailto,], stdin=message)
 				message.close()
 
 				if r == 0: print "\t\tdone."
