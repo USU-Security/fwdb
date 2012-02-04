@@ -42,7 +42,7 @@ if __name__ == '__main__':
 	to_add = []
 
 	SET_NAME = args['set_name']
-	BLOCK_DAYS = args['block_days'] if args.has_key('block_days') else DEFAULT_BLOCK_DAYS
+	BLOCK_DAYS = int(args['block_days']) if args.has_key('block_days') else DEFAULT_BLOCK_DAYS
 	OWNER = args['owner']
 	DESCRIPTION = args['description']
 	os.environ['DESCRIPTION'] = DESCRIPTION
@@ -65,7 +65,10 @@ if __name__ == '__main__':
 					owner_name=OWNER,
 					description=DESCRIPTION
 					)
-			host = iface.get_hosts(host_id=host_id)
+			print host_id
+			assert len(host_id) == 1
+			host_id = host_id[0]
+			host = iface.get_hosts(host_ids=host_id)
 		elif len(host) == 1:
 			host = host[0]
 			# do we like this guy or not?
