@@ -31,11 +31,12 @@ options.add_argument('--dbuser', help='The database user')
 args = options.parse_args()
 
 ssh_orig_cmd = ''
-if os.environ.has_key('SSH_ORIGINAL_COMMAND')
+if os.environ.has_key('SSH_ORIGINAL_COMMAND'):
 	ssh_orig_cmd = os.environ['SSH_ORIGINAL_COMMAND']
-unsafe_args = options.parse_args(os.environ['SSH_ORIGINAL_COMMAND']
+unsafe_args = options.parse_args(ssh_orig_cmd)
 
 only_sets = args.only_sets
+
 allow_expired = args.allow_expired
 
 mailto = args.mailto
