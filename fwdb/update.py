@@ -30,6 +30,11 @@ options.add_argument('--scriptdir', help='The directory to put scripts in.', def
 options.add_argument('--dbuser', help='The database user')
 args = options.parse_args()
 
+ssh_orig_cmd = ''
+if os.environ.has_key('SSH_ORIGINAL_COMMAND')
+	ssh_orig_cmd = os.environ['SSH_ORIGINAL_COMMAND']
+unsafe_args = options.parse_args(os.environ['SSH_ORIGINAL_COMMAND']
+
 only_sets = args.only_sets
 allow_expired = args.allow_expired
 
@@ -39,18 +44,21 @@ if '@' not in mailto:
 
 if args.user:
 	username = args.user
+elif unsafe_args.user:
+	username = "[%s]"%unsafe_args.user
 else:
 	username = "USERNAME_NOT_GIVEN"
+
 if args.firewall:
 	firewall_id = args.firewall
 else:
 	firewall_id = socket.gethostname()
 
 description = args.description
-if os.environ.has_key('DESCRIPTION'):
+if unsafe_args.description:
 	if not description:
 		description = ''
-	description += os.environ['DESCRIPTION']
+	description += unsafe_args.description
 
 dry_run = args.dry_run
 push = args.push

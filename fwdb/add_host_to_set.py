@@ -21,7 +21,13 @@ else:
 def do_sync(fw):
 	if not re.match('^[0-9a-zA-Z.-]+$',fw):
 		raise Exception("Got invalid firewall: %s" % fw)
-	ret = os.system('ssh root@%s /bin/false' % fw)
+	cmd = 'ssh root@%s /bin/false -u "%s" -d "%s"'
+	desc = ''
+	if os.environ.has_key('DESCRIPTION'):
+		desc = os.environ['DESCRIPTION']
+	
+	cmd %= (fw,my_username,desc,)
+	ret = os.system(cmd)
 	if ret:
 		print 'Error updating firewall %s: returned %s' % (fw, ret)
 
@@ -68,7 +74,7 @@ if __name__ == '__main__':
 			print host_id
 			assert len(host_id) == 1
 			host_id = host_id[0]
-			host = iface.get_hosts(host_ids=host_id)
+			host = iface.get_hosts(host_ids=host_id)[0]
 		elif len(host) == 1:
 			host = host[0]
 			# do we like this guy or not?
