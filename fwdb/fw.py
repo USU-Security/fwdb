@@ -617,25 +617,30 @@ class FirewallCmd( cmd.Cmd ):
 
 		if subcommand == 'real_interface':
 			fields = [
-					('name',),
 					('pseudo','pseudo interface name',),
+					('name','real interface name'),
 					('is_bridged','interface is a bridge member',),
 					('firewall',),
-					('description',),
+					#('description',),
 				]
-			defaults = { 'is_bridged':True }
+			defaults = { 'is_bridged':'True' }
 			complete_vals = {
 					'pseudo': [i[0] for i in self.iface.get_table( 'interfaces',['name',] )],
 					'firewall': [i[0] for i in self.iface.get_table( 'firewalls',['name',] )],
 					}
 			if update: raise Exception('Not implemented.')
 			vals = self.get_from_user( fields, defaults=defaults, complete=complete_vals )
-			if vals['is_pridged'][0] in ['f','F','n','N']:
+			if vals['is_bridged'][0] in ['f','F','n','N']:
 				vals['is_bridged'] = False
 			else:
 				vals['is_bridged'] = True
 			vals['pseudo'] = self.iface.get_id_byname('interfaces',vals['pseudo'])
 			if vals:
+				firewall = self.iface.get_firewalls(name=vals['firewall'], columns=['id','name'])
+				if len(firewall) != 1:
+					raise Exception("Invalid firewall: %s: %r" % (vals['firewall'],firewall))
+				vals['firewall_id'] = firewall[0]['id']
+				del vals['firewall']
 				self.iface.add_dict( 'real_interfaces', vals )
 
 		if subcommand == 'firewall':
@@ -643,6 +648,8 @@ class FirewallCmd( cmd.Cmd ):
 			fields = [
 					('name',),
 				]
+			#vals = self.get_from_user( fields, defaults=defaults, complete=complete_vals )
+			vals = self.get_from_user( fields )
 			if vals:
 				self.iface.add_dict( 'firewalls', vals )
 
@@ -1035,6 +1042,10 @@ class FirewallCmd( cmd.Cmd ):
 			self.show_dicts(self.iface.get_firewalls())
 		elif subcmd == 'table':
 			print self.iface.get_tables()
+		elif subcmd == 'pattern' or subcmd == 'patterns':
+			fields = ['id','pattern','description']
+			chain_patterns = self.iface.get_table('chain_patterns', fields)
+			self.show_vals(fields, chain_patterns)
 		else:
 			raise Exception("Subcommand %r not recognized." % subcmd) 
 

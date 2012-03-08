@@ -93,7 +93,6 @@ else:
 user_string = '%s@%s' % (username, ssh_client)
 
 #scriptdir='/var/lib/iptables'
-mailto='firewall-admins@lists.usu.edu'
 if not scriptdir: scriptdir='/root/firewall_scripts'
 
 iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='%s'"%dbuser, fw = firewall_id)
