@@ -10,9 +10,6 @@ import IPy
 import time
 
 import subprocess
-import shlexp
-
-import subprocess
 import shlex
 
 # NOTE: endlines should never be allowed anywhere
@@ -29,7 +26,7 @@ _default = object()
 IPSET_CMD = "ipset"
 
 def get_output(cmd):
-	return subprocess.check_output( shlexp.split(cmd) )
+	return subprocess.check_output( shlex.split(cmd) )
 
 def get_ipset_version():
 	output = get_output(IPSET_CMD + ' -v')
@@ -43,24 +40,34 @@ ipset_version = get_ipset_version()
 
 
 if ipset_version == 6:
-	IPSET_ADD = IPSET_CMD + " add %s %s"
-	IPSET_DEL = IPSET_CMD + " del %s %s"
-
-	IPSET_CREATE = IPSET_CMD + " create %s %s family inet "
-	IPSET_DESTROY = IPSET_CMD + " destroy %s"
-
-	IPSET_SAVE_ALL = IPSET_CMD + " save"
-	IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
+	IPSET_ADD_OPT = "add"
+	IPSET_DEL_OPT = "del"
+	IPSET_CREATE_OPT = "create"
+	IPSET_DESTROY_OPT = "destroy"
+	IPSET_SAVE_OPT = "save"
+	IPSET_IPHASH_TYPE = "hash:ip"
+	IPSET_NETHASH_TYPE = "hash:net"
 
 elif ipset_version == 4:
-	IPSET_ADD = IPSET_CMD + " -A %s %s"
-	IPSET_DEL = IPSET_CMD + " -D %s %s"
+	IPSET_ADD_OPT = "-A"
+	IPSET_DEL_OPT = "-D"
+	IPSET_CREATE_OPT = "-C"
+	IPSET_DESTROY_OPT = "-X"
+	IPSET_SAVE_OPT = "-S"
+	IPSET_IPHASH_TYPE = "iphash"
+	IPSET_NETHASH_TYPE = "nethash"
 
-	IPSET_CREATE = IPSET_CMD + " -N %s %s --probes 4 --resize 100"
-	IPSET_DESTROY = IPSET_CMD + " -X %s"
+else:
+	raise Exception("Bad ipset version: %s" % ipset_version)
 
-	IPSET_SAVE_ALL = IPSET_CMD + " -S"
-	IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
+IPSET_ADD = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_ADD_OPT )
+IPSET_DEL = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DEL_OPT )
+
+IPSET_CREATE = "%s %s %%s %%s family inet" % ( IPSET_CMD, IPSET_CREATE_OPT )
+IPSET_DESTROY = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DESTROY_OPT )
+
+IPSET_SAVE_ALL = "%s %s" % ( IPSET_CMD, IPSET_SAVE_OPT )
+IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
 
 else:
 	raise Exception("Bad ipset version: %s" % ipset_version)
