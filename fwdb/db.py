@@ -69,9 +69,6 @@ IPSET_DESTROY = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DESTROY_OPT )
 IPSET_SAVE_ALL = "%s %s" % ( IPSET_CMD, IPSET_SAVE_OPT )
 IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
 
-else:
-	raise Exception("Bad ipset version: %s" % ipset_version)
-
 def check_table_name(v):
 	if table_re.match(v):
 		return True
