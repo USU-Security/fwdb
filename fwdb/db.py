@@ -29,15 +29,18 @@ def get_output(cmd):
 	return subprocess.check_output( shlex.split(cmd) )
 
 def get_ipset_version():
-	output = get_output(IPSET_CMD + ' -v')
-	m = re.search(r'ipset v([0-9.]+)', output)
-	if m:
-		ver = m.group(1)
-		major = int(ver.split('.')[0])
+	try:
+		output = get_output(IPSET_CMD + ' -v')
+		m = re.search(r'ipset v([0-9.]+)', output)
+		if m:
+			ver = m.group(1)
+			major = int(ver.split('.')[0])
+	except Exception,e:
+		print e
+		return "FAILED"
 	return major
 
 ipset_version = get_ipset_version()
-
 
 if ipset_version == 6:
 	IPSET_ADD_OPT = "add"
@@ -48,7 +51,7 @@ if ipset_version == 6:
 	IPSET_IPHASH_TYPE = "hash:ip"
 	IPSET_NETHASH_TYPE = "hash:net"
 
-elif ipset_version == 4:
+else: # probably v4
 	IPSET_ADD_OPT = "-A"
 	IPSET_DEL_OPT = "-D"
 	IPSET_CREATE_OPT = "-C"
@@ -56,9 +59,6 @@ elif ipset_version == 4:
 	IPSET_SAVE_OPT = "-S"
 	IPSET_IPHASH_TYPE = "iphash"
 	IPSET_NETHASH_TYPE = "nethash"
-
-else:
-	raise Exception("Bad ipset version: %s" % ipset_version)
 
 IPSET_ADD = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_ADD_OPT )
 IPSET_DEL = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DEL_OPT )
