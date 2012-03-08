@@ -20,14 +20,41 @@ numeric = re.compile( r"^[0-9]+$" )
 
 _default = object()
 
-IPSET_ADD = "ipset -A %s %s"
-IPSET_DEL = "ipset -D %s %s"
+IPSET_CMD = "ipset"
 
-IPSET_CREATE = "ipset -N %s %s --probes 4 --resize 100"
-IPSET_DESTROY = "ipset -X %s"
+def get_ipset_version():
+	try:
+		output = get_output(IPSET_CMD + ' -v')
+		m = re.search(r'ipset v([0-9.]+)')
+		if m:
+			ver = m.group(1)
+			major = int(ver.split('.')[0])
+	except:
+		return None
+	return major
 
-IPSET_SAVE_ALL = "ipset -S"
-IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
+ipset_version = get_ipset_version()
+
+
+if ipset_version == 6:
+	IPSET_ADD = IPSET_CMD + " add %s %s"
+	IPSET_DEL = IPSET_CMD + " del %s %s"
+
+	IPSET_CREATE = IPSET_CMD + " create %s %s family inet "
+	IPSET_DESTROY = IPSET_CMD + " destroy %s"
+
+	IPSET_SAVE_ALL = IPSET_CMD + " save"
+	IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
+
+elif ipset_version == 4:
+	IPSET_ADD = IPSET_CMD + " -A %s %s"
+	IPSET_DEL = IPSET_CMD + " -D %s %s"
+
+	IPSET_CREATE = IPSET_CMD + " -N %s %s --probes 4 --resize 100"
+	IPSET_DESTROY = IPSET_CMD + " -X %s"
+
+	IPSET_SAVE_ALL = IPSET_CMD + " -S"
+	IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
 
 def check_table_name(v):
 	if table_re.match(v):
@@ -955,10 +982,10 @@ class ipset_list(object):
 			if line[0] == '#':
 				continue
 			options = line.split()
-			if options[0] == '-N':
+			if options[0] in [ '-N', 'create' ]:
 				assert len(options) >= 3
 				self.add_chain(name=options[1], set_type=options[2])
-			if line[:2] == '-A':
+			elif options[0] in [ '-A', 'add' ]:
 				assert len(options) == 3
 				self.add(options[1], options[2])
 	
