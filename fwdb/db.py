@@ -9,6 +9,12 @@ import IPy
 
 import time
 
+import subprocess
+import shlexp
+
+import subprocess
+import shlex
+
 # NOTE: endlines should never be allowed anywhere
 valid = re.compile( r"^[a-zA-Z0-9 '!/@.,%\"=?\n<>()\\:#|_$\t-]+$" )
 #address = re.compile( r"^([0-9]{1,3}\.){,3}[0-9]{1,3}(/[1-3]?[0-9])?$" )
@@ -22,15 +28,15 @@ _default = object()
 
 IPSET_CMD = "ipset"
 
+def get_output(cmd):
+	return subprocess.check_output( shlexp.split(cmd) )
+
 def get_ipset_version():
-	try:
-		output = get_output(IPSET_CMD + ' -v')
-		m = re.search(r'ipset v([0-9.]+)')
-		if m:
-			ver = m.group(1)
-			major = int(ver.split('.')[0])
-	except:
-		return None
+	output = get_output(IPSET_CMD + ' -v')
+	m = re.search(r'ipset v([0-9.]+)', output)
+	if m:
+		ver = m.group(1)
+		major = int(ver.split('.')[0])
 	return major
 
 ipset_version = get_ipset_version()
@@ -55,6 +61,9 @@ elif ipset_version == 4:
 
 	IPSET_SAVE_ALL = IPSET_CMD + " -S"
 	IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
+
+else:
+	raise Exception("Bad ipset version: %s" % ipset_version)
 
 def check_table_name(v):
 	if table_re.match(v):
@@ -905,7 +914,7 @@ class ipset(object):
 		if (self.hosts and  s.nets) or (self.nets and s.hosts):
 			raise Exception("Cannot mix hosts and networks, sorry.")
 		if (self.set_type and s.set_type and self.set_type != s.set_type):
-			raise Exception("Cannot change set types.")
+			raise Exception("Cannot change set types: %s -> %s." % (self.set_type, s.set_type))
 
 		if self.hosts:
 			remove = self.hosts.difference(s.hosts)
@@ -942,22 +951,15 @@ class ipset(object):
 				able to get hosts and networks in the same set (%s)""" % self.name)
 
 		result = []
-		hashsize=1024
-		#makes it difficult to get a hash 
-		#result.append("# Created by fwdb on %s" % str(datetime.datetime.now()) )
 
 		if self.hosts:
-			while len(self.hosts) > hashsize/2: # the hash is half full
-				hashsize *= 2
-			result.append("-N %s iphash --hashsize %d --probes 4 --resize 100" % (name, hashsize))
+			result.append("%s %s %s" % (IPSET_CREATE_OPT, name, IPSET_IPHASH_TYPE))
 			for host in self.hosts:
-				result.append("-A %s %s" % (name,str(host)))
+				result.append("%s %s %s" % (IPSET_ADD_OPT, name,str(host)))
 		if self.nets:
-			while len(self.nets) > hashsize/2: # the hash is half full
-				hashsize *= 2
-			result.append("-N %s nethash --hashsize %d --probes 4 --resize 100" % (name, hashsize))
+			result.append("%s %s %s" % (IPSET_CREATE_OPT, name, IPSET_NETHASH_TYPE))
 			for net in self.nets:
-				result.append("-A %s %s" % (name,str(net)))
+				result.append("%s %s %s" % (IPSET_ADD_OPT,name,str(net)))
 		return '\n'.join(result)
 
 class ipset_list(object):
@@ -969,13 +971,12 @@ class ipset_list(object):
 	def __getitem__(self, k):
 		return self.set_members[k]
 	def load_file(self, filename=None, chain=None):
-		if chain is None:
-			chain = ':all:'
-
 		if filename:
 			infile = open(filename)
 		else:
-			cmd = IPSET_SAVE_SET % chain
+			cmd = IPSET_SAVE_ALL
+			if chain:
+				cmd = IPSET_SAVE_SET % chain
 			infile = os.popen(cmd)
 
 		for line in infile:
@@ -998,9 +999,9 @@ class ipset_list(object):
 	def add(self, set_name, address, end_address=None):
 		address = IPy.IP(address)
 		if set_name not in self.set_members:
-			set_type = 'iphash'
+			set_type = IPSET_IPHASH_TYPE
 			if len(address) > 1: # FIXME: technically, an IP object can hold a range
-				set_type = 'nethash'
+				set_type = IPSET_NETHASH_TYPE
 			self.add_chain(set_name, set_type)
 			
 		if address.len() == 1:

@@ -30,6 +30,7 @@ def do_sync(fw):
 	ret = os.system(cmd)
 	if ret:
 		print 'Error updating firewall %s: returned %s' % (fw, ret)
+	return ret
 
 DEFAULT_BLOCK_DAYS=30
 
@@ -101,7 +102,9 @@ if __name__ == '__main__':
 
 	# If you made it this far, your chances are pretty good
 	firewalls = iface.get_firewalls(name='fwborder%')
+	exit_status = 0
 	for fw in firewalls:
-		do_sync(fw['name'])
+		exit_status |= do_sync(fw['name'])
+	return exit_status
 
 
