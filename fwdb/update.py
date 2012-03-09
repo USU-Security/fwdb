@@ -426,7 +426,7 @@ if __name__ == '__main__':
 						os.system('iptables -F')
 					sys.exit(1)
 				else:
-					if not save and not only_sets:
+					if not only_sets and not save:
 						try:
 							write_stats(tmpiptname)
 						except Exception, e:
