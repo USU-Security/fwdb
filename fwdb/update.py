@@ -33,7 +33,7 @@ args = options.parse_args()
 ssh_orig_cmd = ''
 if os.environ.has_key('SSH_ORIGINAL_COMMAND'):
 	ssh_orig_cmd = os.environ['SSH_ORIGINAL_COMMAND']
-unsafe_args = options.parse_args(ssh_orig_cmd)
+unsafe_args = options.parse_args( shlex.split(ssh_orig_cmd)[1:] )
 
 only_sets = args.only_sets
 
