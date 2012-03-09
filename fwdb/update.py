@@ -17,6 +17,8 @@ import argparse
 import socket
 import hashlib
 
+import shlex
+
 options = argparse.ArgumentParser(description="Synchronize the firewall to the database")
 options.add_argument('-f', '--firewall', help="The firewall in the database to sync rules to (defaults to this host)")
 options.add_argument('-m', '--mailto', help="Send a notification to this email address", default='firewall-admins@lists.usu.edu')
