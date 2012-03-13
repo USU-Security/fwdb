@@ -303,6 +303,12 @@ def genhash(*args):
 
 if __name__ == '__main__':
 
+	if only_sets:
+		print "copying current ruleset:"
+		os.unlink(newdir)
+		shutil.copytree(currdir,newdir)
+		print "\tdone."
+
 	check_dirs( [ currdir, backupdir, scriptdir, newdir, ] )
 
 	print "calculating set changes:"
@@ -315,11 +321,7 @@ if __name__ == '__main__':
 
 	changed = False
 
-	if only_sets:
-		print "copying current ruleset:"
-		shutil.copy2(currdir,newdir)
-		print "\tdone."
-	else:
+	if not only_sets:
 		print "generating ruleset:"
 		generate_ruleset()
 
