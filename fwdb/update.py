@@ -18,6 +18,7 @@ import socket
 import hashlib
 
 import shlex
+import shutil
 
 options = argparse.ArgumentParser(description="Synchronize the firewall to the database")
 options.add_argument('-f', '--firewall', help="The firewall in the database to sync rules to (defaults to this host)")
