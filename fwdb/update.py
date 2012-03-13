@@ -305,7 +305,6 @@ if __name__ == '__main__':
 
 	if only_sets:
 		print "copying current ruleset:"
-		os.unlink(newdir)
 		shutil.copytree(currdir,newdir)
 		print "\tdone."
 
