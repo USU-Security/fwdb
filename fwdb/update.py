@@ -314,7 +314,11 @@ if __name__ == '__main__':
 
 	changed = False
 
-	if not only_sets:
+	if only_sets:
+		print "copying current ruleset:"
+		shutil.copy2(currdir,newdir)
+		print "\tdone."
+	else:
 		print "generating ruleset:"
 		generate_ruleset()
 
