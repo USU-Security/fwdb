@@ -37,6 +37,10 @@ else:
 
 histfile = os.path.join( os.environ['HOME'], '.fwdb_history' )
 
+def splitargs(arg):
+	return shlex.split(arg)
+
+
 class db_wrapper( object ):
 	def __init__(self, db_str):
 		import psycopg2
@@ -226,7 +230,7 @@ class FirewallCmd( cmd.Cmd ):
 			d[key]=args[i+1]
 		return d
 
-	def show_dicts( self, dicts, fields=None, prefix='', separator='\n' ):
+	def show_dicts( self, dicts, fields=None, prefix='', field_separator='\n', row_separator="\n" ):
 		if not fields and dicts:
 			fields = []
 			for k in dicts[0].keys():
@@ -235,13 +239,13 @@ class FirewallCmd( cmd.Cmd ):
 		for name,label in fields:
 			if len(label) > maxlen:
 				maxlen = len(label)
-		fmt_str = '%%s%%%ds:\t%%s\n' % maxlen
+		fmt_str = '%%s%%%ds:\t%%s%s' % (maxlen,field_separator)
 
-		sys.stdout.write( separator )
-		for dict in dicts:
+		sys.stdout.write( row_separator )
+		for d in dicts:
 			for name, label in fields:
-				sys.stdout.write( fmt_str % ( prefix, label, dict[name] ) )
-			sys.stdout.write( separator )
+				sys.stdout.write( fmt_str % ( prefix, label, d[name] ) )
+			sys.stdout.write( row_separator )
 	
 	def show_vals( self, fields, vals ):
 		lines = []
@@ -1077,6 +1081,26 @@ class FirewallCmd( cmd.Cmd ):
 
 		# Force an update on cached usage statistics
 		self.iface.last_usage_update = 0
+
+	def do_autoexpire( self, arg ):
+		args = splitargs(arg)
+		typename = args[0]
+		del args[0]
+		if typename == 'group':
+			to_delete = []
+			for arg in args:
+				to_delete.extend( self.iface.get_hosts_to_groups(group_name=arg,expired=True) )
+			if to_delete:
+				print "The following memberships will be deleted:"
+				self.show_dicts( dicts=to_delete, fields=[("id","id"),("groups.name","group"),("hosts.name","host")], field_separator="\t" )
+				if self.get_bool_from_user( prompt="Expire these entries" ):
+					for i in to_delete:
+						self.iface.del_host_to_group(group_id=i['gid'], host_id=i['hid'])
+			else:
+				print "no entries to expire"
+		else:
+			print "Not implemented"
+
 
 	def get_choice_from_user( self, prompt, list ):
 		fmt = '%s: '

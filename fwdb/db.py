@@ -614,6 +614,41 @@ class db(object):
 			where['gid'] = gid
 		return self.get_dict('hosts left join hosts_to_groups on hosts.id = hid', ['hosts.id', 'name', 'host', 'host_end', 'description', 'is_group', 'owner', 'last_check',], where, distinct=True)
 
+	def get_hosts_to_groups( self, group_id=None, group_name=None, host_id=None, hostname=None, expired=None ):
+		where = {}
+		where_items = []
+		if group_id and group_name:
+			raise InvalidArgument("Must not specify both group_id and group_name: (id: %s, name: %s)" % (group_id,group_name))
+		if host_id and hostname:
+			raise InvalidArgument("Must not specify both host_id and hostname: (id: %s, name: %s)" % (host_id,hostname))
+		if expired is not None:
+			if expired:
+				where_items.append( "hosts_to_groups.expires <= NOW()" )
+			else:
+				where_items.append( "hosts_to_groups.expires > NOW()" )
+		if group_name:
+			groups = self.get_groups( name=group_name )
+			if len(groups) != 1:
+				raise Exception("Invalid or duplicate group found: %s (%r)" % (group_name, groups))
+			group_id = groups[0]['gid']
+		if group_id:
+			where['hosts_to_groups.gid'] = int(group_id)
+		if hostname:
+			hosts = get_hosts( name=hostname )
+			if len(hosts) != 1:
+				raise Exception("Invalid or duplicate host found: %s (%r)" % (hostname, hosts))
+			host_id = hosts[0]['hosts.id']
+		if host_id:
+			where['hosts_to_groups.hid'] = host_id
+		where_items.extend( self.get_where(where) )
+		table = """hosts_to_groups join hosts on hosts_to_groups.hid = hosts.id and hosts.is_group = False
+		join hosts groups on hosts_to_groups.gid = groups.id and groups.is_group = True"""
+		columns = [ ("hosts_to_groups.id","id"), ("hosts_to_groups.expires","expires"), "hid", "gid", "hosts.name", "groups.name" ]
+
+		d = ' AND '.join( where_items )
+
+		return self.get_dict( table = table, columns = columns, d=d, order_by = "groups.name, hosts.name")
+
 	def add_host_to_group( self, group_id, host_id=None, hostname=None, expires=None ):
 		if expires is None:
 			expires='+365'
@@ -859,13 +894,15 @@ class db(object):
 		for r in self.get_rules(andwhere=dst_where, columns=['dst.id'], fw_id=fw_id):
 			ret.add(r[0])
 		return ret
-	def get_groups(self, host_id = None, columns = None):
+	def get_groups(self, host_id = None, columns = None, name=None):
 		where = {'is_group': True}
+		if name:
+			where['hosts.name'] = name
 		if host_id: where['hosts_to_groups.hid'] = host_id
 		if not columns:
 			columns = [('hosts.id', 'gid'), 'name', 'owner', 'description']
 
-		return self.get_dict("hosts_to_groups join hosts on hosts_to_groups.gid  = hosts.id", columns, where)
+		return self.get_dict("hosts_to_groups join hosts on hosts_to_groups.gid  = hosts.id", columns, where, distinct=True)
 
 	def get_firewalls(self, name=None, columns = None):
 		# Not used if 'columns' are specified
