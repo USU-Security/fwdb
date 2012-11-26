@@ -377,7 +377,7 @@ if __name__ == '__main__':
 			if only_sets:
 				x = 'y'
 			elif push is None:
-				os.system('[ -x /usr/bin/colordiff.disabled ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -XF -R' % (tmpsetname, tmpdiff_name,) )
+				os.system('[ -x /usr/bin/colordiff.disabled ] && CAT=colordiff || CAT=cat; $CAT %s %s | less -S -XF -R' % (tmpsetname, tmpdiff_name,) )
 				x = raw_input('Load new configuration [y/N]: ')
 			elif push == rule_hash:
 				x = 'y'

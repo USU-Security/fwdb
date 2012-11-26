@@ -107,6 +107,6 @@ if __name__ == '__main__':
 	exit_status = 0
 	for fw in firewalls:
 		exit_status |= do_sync(fw['name'])
-	return exit_status
+	exit(exit_status)
 
 
