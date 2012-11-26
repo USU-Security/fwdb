@@ -17,6 +17,8 @@ import db
 import re
 import shlex
 
+import fwdb_config
+
 cli_completer_delims = (" \t\n\"';,:|")
 readline.set_completer_delims( cli_completer_delims )
 
@@ -65,13 +67,13 @@ class FirewallCmd( cmd.Cmd ):
 
 		if ipam_interface:
 			try:
-				self.ipamdb = db_wrapper("host='newdb1.ipam.usu.edu' dbname='prod_openipam'")
+				self.ipamdb = db_wrapper("host='ipamdb.ipam.usu.edu' dbname='prod_openipam'")
 			except:
 				print "You do not have direct access to the IPAM database."
 				self.ipamdb = None
 		self.prompt = '%s > ' % dbname
 		# FIXME: we should catch ^C
-		self.iface = db.db("dbname=%s host=newdb1.ipam.usu.edu" % dbname)
+		self.iface = db.db("dbname=%s host=%s" % (dbname, fwdb_config.default_db_host) )
 		cmd.Cmd.__init__( self )
 
 		self.show_usage = True

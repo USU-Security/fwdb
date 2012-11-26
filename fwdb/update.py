@@ -20,6 +20,8 @@ import hashlib
 import shlex
 import shutil
 
+import fwdb_config
+
 options = argparse.ArgumentParser(description="Synchronize the firewall to the database")
 options.add_argument('-f', '--firewall', help="The firewall in the database to sync rules to (defaults to this host)")
 options.add_argument('-m', '--mailto', help="Send a notification to this email address", default='firewall-admins@lists.usu.edu')
@@ -98,7 +100,7 @@ user_string = '%s@%s' % (username, ssh_client)
 #scriptdir='/var/lib/iptables'
 if not scriptdir: scriptdir='/root/firewall_scripts'
 
-iface = db.db("host='newdb1.ipam.usu.edu' dbname='fwdb' user='%s'"%dbuser, fw = firewall_id)
+iface = db.db("host=%s dbname=%s user='%s'" % (fwdb_config.default_db_host, fwdb_config.default_db_name, dbuser), fw = firewall_id)
 
 valid_chains = iface.get_fw_chains()
 chain_patterns_where = " (chain.id in ("+",".join(map(str, valid_chains))+")) "

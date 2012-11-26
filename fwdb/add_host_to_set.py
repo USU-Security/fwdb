@@ -11,7 +11,9 @@ import datetime
 
 import cjson
 
-dbname='fwdb'
+import fwdb_config
+
+dbname=fwdb_config.default_db_name
 
 if os.environ.has_key('USER'):
 	my_username = os.environ['USER']
@@ -35,7 +37,7 @@ def do_sync(fw):
 DEFAULT_BLOCK_DAYS=30
 
 if __name__ == '__main__':
-	iface = db.db("dbname=%s host=newdb1.ipam.usu.edu" % dbname)
+	iface = db.db("dbname=%s host=%s" % (dbname, fwdb_config.default_db_host) )
 
 	data = sys.stdin.readline()
 	args = cjson.decode(data)
