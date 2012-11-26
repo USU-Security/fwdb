@@ -494,27 +494,42 @@ class FirewallCmd( cmd.Cmd ):
 			return
 		_type = args[0]
 
+		time_arg = None
+		set_to = "NOW() + interval '1 year'"
+
+		if args[1].strip()[0] in ['+-=']:
+			time_arg = args[1].strip()
+			del args[1]
+			if time_arg[0] in '+-':
+				set_to = "NOW() + interval '%s days'" % int(time_arg) # should be safe
+			elif time_arg[0] == '=':
+				set_to = time_arg[1:]
+				if re.search(r'[^0-9-]',set_to):
+					raise Exception("Invalid time argument: %s" % set_to)
+				set_to = "'%s'" % set_to
+			else:
+				print 'Bad argument: %s' % time_arg
+				return
 		if _type == 'rule':
-			set_to = "NOW() + interval '1 year'"
-			if args[1].strip()[0] not in '1234567890':
-				time_arg = args[1].strip()
-				del args[1]
-				if time_arg[0] in '+-':
-					set_to = "NOW() + interval '%s days'" % int(time_arg) # should be safe
-				elif time_arg[0] == '=':
-					set_to = time_arg[1:]
-					if re.search(r'[^0-9-]',set_to):
-						raise Exception("Invalid time argument: %s" % set_to)
-					set_to = "'%s'" % set_to
-				else:
-					print 'Bad argument: %s' % time_arg
-					return
 			ids = map(int,args[1:])
 			where = self.iface.get_where({'id':ids})
 			sql = 'UPDATE rules SET expires = %s WHERE %s' % (set_to,' AND '.join(where))
 			self.show_rules(ids=ids)
 			print '\nChange: %s' % set_to
 			if self.get_bool_from_user('Update these rules', False):
+				self.iface.execute_insert(sql)
+		elif _type == 'group':
+			gids = []
+			groups = []
+			for i in args[1:]:
+				for j in self.iface.get_groups(name=i.strip()):
+					gids.append(j['gid'])
+					groups.append(j)
+			where = self.iface.get_where( {'gid':gids} )
+			sql = 'UPDATE hosts_to_groups SET expires = %s WHERE %s' % (set_to, ' AND '.join(where))
+			self.show_dicts(groups)
+			print '\nChange: %s' % set_to
+			if self.get_bool_from_user('Renew all hosts in listed group(s) (I\'m trusting you to actually look first)', False):
 				self.iface.execute_insert(sql)
 	
 	def show_rules( self, ids ):
