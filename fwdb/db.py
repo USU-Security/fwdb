@@ -64,7 +64,7 @@ IPSET_ADD = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_ADD_OPT )
 IPSET_DEL = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DEL_OPT )
 
 IPSET_CREATE = "%s %s %%s %%s family inet" % ( IPSET_CMD, IPSET_CREATE_OPT )
-IPSET_DESTROY = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DESTROY_OPT )
+IPSET_DESTROY = "%s %s %%s" % ( IPSET_CMD, IPSET_DESTROY_OPT )
 
 IPSET_SAVE_ALL = "%s %s" % ( IPSET_CMD, IPSET_SAVE_OPT )
 IPSET_SAVE_SET = IPSET_SAVE_ALL + " %s"
