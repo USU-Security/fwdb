@@ -497,7 +497,7 @@ class FirewallCmd( cmd.Cmd ):
 		time_arg = None
 		set_to = "NOW() + interval '1 year'"
 
-		if args[1].strip()[0] in ['+-=']:
+		if args[1].strip()[0] in '+-=':
 			time_arg = args[1].strip()
 			del args[1]
 			if time_arg[0] in '+-':
@@ -963,8 +963,9 @@ class FirewallCmd( cmd.Cmd ):
 				elif host[0] == '-':
 					self.iface.del_host_to_group( host_id=self.iface.get_host_id(host[1:]), group_id=current_id )
 				else:
-					id = self.iface.get_host_id(self.check_host(host))
-					self.iface.add_host_to_group( host_id=id, group_id=current_id, expires=time )
+					hid = self.iface.get_host_id(self.check_host(host))
+					exists = self.iface.get_hosts_to_groups( host_id=hid, group_id=current_id )
+					self.iface.add_host_to_group( host_id=hid, group_id=current_id, expires=time, update=bool(exists) )
 
 			except db.NotFound,e:
 				print repr(e)

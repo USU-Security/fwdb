@@ -649,7 +649,7 @@ class db(object):
 
 		return self.get_dict( table = table, columns = columns, d=d, order_by = "groups.name, hosts.name")
 
-	def add_host_to_group( self, group_id, host_id=None, hostname=None, expires=None ):
+	def add_host_to_group( self, group_id, host_id=None, hostname=None, expires=None, update=False ):
 		if expires is None:
 			expires='+365'
 		if expires[0] == '+':
@@ -669,7 +669,10 @@ class db(object):
 		if d:
 			raise Exception("Cannot mix hosts and networks: gid: %s, host: %s, existing: %s" % (group_id, host, d) )
 
-		self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,'expires':expires} )
+		if update:
+			self.execute_insert( 'update hosts_to_groups set expires=%s where hid=%s and gid=%s', values=(expires,host_id,group_id) )
+		else:
+			self.add_dict( 'hosts_to_groups', {'hid':host_id,'gid':group_id,'expires':expires} )
 			
 		"""# I decided to put this off until someone actually needs it; will need to fix del_h2g, too
 		self.begin_transaction()
