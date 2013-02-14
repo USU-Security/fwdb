@@ -287,7 +287,7 @@ class db(object):
 
 		return self.execute_query(sql)[0]
 
-	def get_table(self, name, columns, whereclause=None, og=None, distinct=True):
+	def get_table(self, name, columns, whereclause=None, whereargs=None, og=None, distinct=True):
 		check_input_str(name)
 		for col in columns: check_input_str(col)
 		distinct_str = ''
@@ -300,7 +300,7 @@ class db(object):
 		if og:
 			sql += ' %s' % og
 
-		return self.execute_query(sql)
+		return self.execute_query(sql, values=whereargs)
 	
 	def host_ip_match( self, column, address, exact=False ):
 		if not exact:
@@ -506,7 +506,7 @@ class db(object):
 		if asdict:
 			return self.get_dict( rule_join, columns, ' AND '.join(where_items), self.rule_order)
 		else:
-			return self.get_table( rule_join, columns, ' AND '.join(where_items), self.rule_order, distinct=False )
+			return self.get_table( rule_join, columns, ' AND '.join(where_items), og=self.rule_order, distinct=False )
 
 	def get_tables(self):
 		return self.get_dict( 'tables', ('id','name','description',) )

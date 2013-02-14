@@ -1035,10 +1035,21 @@ class FirewallCmd( cmd.Cmd ):
 		elif subcmd == 'port':
 			fields = ['id','name','port','endport','description',]
 			where = None
+			where_args = None
 			if subarg:
-				id = int(self.iface.get_port_id(subarg))
-				where = "ports.id = %s" % id
-			vals = self.iface.get_table('ports',fields,where)
+				port = subarg
+				portnum = None
+				try:
+					portnum = int(subarg)
+				except ValueError:
+					pass
+				if portnum:
+					where = "ports.port = %s or (ports.port <= %s and ports.endport >= %s)"
+					whereargs = (portnum,) * 3
+				else:
+					where = "ports.name = %s"
+					whereargs = port
+			vals = self.iface.get_table('ports', fields, whereclause=where, whereargs=whereargs)
 			self.show_vals(fields, vals)
 		elif subcmd == 'interface':
 			fields = ['id','name','description',]
