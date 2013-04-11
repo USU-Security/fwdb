@@ -42,7 +42,7 @@ def get_ipset_version():
 
 ipset_version = get_ipset_version()
 
-if ipset_version == 6:
+if ipset_version == 6 or ipset_version == "FAILED":
 	IPSET_ADD_OPT = "add"
 	IPSET_DEL_OPT = "del"
 	IPSET_CREATE_OPT = "create"
