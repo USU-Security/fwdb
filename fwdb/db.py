@@ -50,20 +50,24 @@ if ipset_version == 6:
 	IPSET_SAVE_OPT = "save"
 	IPSET_IPHASH_TYPE = "hash:ip"
 	IPSET_NETHASH_TYPE = "hash:net"
+	IPSET_CREATE = "%s %s %%s %%s family inet" % ( IPSET_CMD, IPSET_CREATE_OPT )
 
-else: # probably v4
+elif ipset_version == 4:
 	IPSET_ADD_OPT = "-A"
 	IPSET_DEL_OPT = "-D"
-	IPSET_CREATE_OPT = "-C"
+	IPSET_CREATE_OPT = "-N"
 	IPSET_DESTROY_OPT = "-X"
 	IPSET_SAVE_OPT = "-S"
 	IPSET_IPHASH_TYPE = "iphash"
 	IPSET_NETHASH_TYPE = "nethash"
+	IPSET_CREATE = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_CREATE_OPT )
+
+else:
+	raise Exception("Unknown ipset version")
 
 IPSET_ADD = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_ADD_OPT )
 IPSET_DEL = "%s %s %%s %%s" % ( IPSET_CMD, IPSET_DEL_OPT )
 
-IPSET_CREATE = "%s %s %%s %%s family inet" % ( IPSET_CMD, IPSET_CREATE_OPT )
 IPSET_DESTROY = "%s %s %%s" % ( IPSET_CMD, IPSET_DESTROY_OPT )
 
 IPSET_SAVE_ALL = "%s %s" % ( IPSET_CMD, IPSET_SAVE_OPT )
