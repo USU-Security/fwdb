@@ -26,7 +26,10 @@ _default = object()
 IPSET_CMD = "ipset"
 
 def get_output(cmd):
-	return subprocess.check_output( shlex.split(cmd) )
+	# only in python 2.7
+	#return subprocess.check_output( shlex.split(cmd) )
+	
+	return subprocess.Popen( shlex.split(cmd), stdout=subprocess.PIPE).communicate()[0]
 
 def get_ipset_version():
 	try:
