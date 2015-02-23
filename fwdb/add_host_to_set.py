@@ -57,7 +57,7 @@ if __name__ == '__main__':
 	os.environ['DESCRIPTION'] = DESCRIPTION
 
 
-	group = iface.get_hosts( name=SET_NAME, is_group=True )
+	group = iface.get_hosts( name=SET_NAME, is_group=True)
 	if len(group) != 1:
 		raise Exception("Invalid group specified: %s (got: %r)" % (SET_NAME,group))
 	group = group[0]
@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
 	HOST_PREFIX=SET_NAME+'_'
 	for address in addresses:
-		host = iface.get_hosts(ip='%s/%s' % (address,address.prefixlen()))
+		host = iface.get_hosts(ip='%s/%s' % (address,address.prefixlen()), exact=True)
 		if len(host) == 0:
 			host_id = iface.add_host(name=HOST_PREFIX+str(address),
 					address=address,

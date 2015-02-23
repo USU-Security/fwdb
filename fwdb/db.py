@@ -315,7 +315,7 @@ class db(object):
 		else:
 			return "%s = '%s'" % (column,address,)
 
-	def get_where( self, d ):
+	def get_where( self, d, exact=None ):
 		check_input_dict(d)
 		where_items = []
 		for i in d.keys():
@@ -325,7 +325,8 @@ class db(object):
 			if type(v) in (types.ListType, set, tuple):
 				where_items.append('%s IN %s' % (i, "(%s)" % ', '.join(v)) )
 			elif is_address(v):
-				exact=v[-3:] == '/32'
+				if exact==None:
+					exact=v[-3:] == '/32'
 				where_items.append( self.host_ip_match(i,str(v), exact) )
 			elif has_wildcard(v):
 				where_items.append("%s like '%s'" % (i,str(v)) )
@@ -337,7 +338,7 @@ class db(object):
 				where_items.append("%s %s '%s'" % (i, comparison, v) )
 		return where_items
 	
-	def get_dict( self, table, columns, d=None, conj = ' AND ', order_by=None, distinct = False):
+	def get_dict( self, table, columns, d=None, conj = ' AND ', order_by=None, distinct = False, exact=None):
 		where_items=[]
 		from_items = []
 		from_keys = []
@@ -353,7 +354,7 @@ class db(object):
 			if type(d) is str:
 				where = d
 			elif type(d) is dict:
-				where = conj.join(self.get_where(d))
+				where = conj.join(self.get_where(d, exact=exact))
 			else:
 				raise Exception("d should be dict or string, not %r"%d)
 			sql = 'SELECT %s%s FROM %s WHERE %s' % (distinct, ','.join(from_items), table, where)
@@ -607,7 +608,7 @@ class db(object):
 
 	def get_host(self, host_id):
 		return self.get_hosts(host_ids=host_id)[0]
-	def get_hosts(self, host_ids=None, name=None, ip=None, is_group=None, gid=None):
+	def get_hosts(self, host_ids=None, name=None, ip=None, is_group=None, gid=None, exact=None):
 		where = {}
 		if host_ids:
 			where['hosts.id'] = host_ids
@@ -619,7 +620,7 @@ class db(object):
 			where['is_group'] = is_group
 		if gid is not None:
 			where['gid'] = gid
-		return self.get_dict('hosts left join hosts_to_groups on hosts.id = hid', ['hosts.id', 'name', 'host', 'host_end', 'description', 'is_group', 'owner', 'last_check',], where, distinct=True)
+		return self.get_dict('hosts left join hosts_to_groups on hosts.id = hid', ['hosts.id', 'name', 'host', 'host_end', 'description', 'is_group', 'owner', 'last_check',], where, distinct=True, exact=exact)
 
 	def get_hosts_to_groups( self, group_id=None, group_name=None, host_id=None, hostname=None, expired=None ):
 		where = {}
