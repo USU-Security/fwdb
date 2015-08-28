@@ -850,7 +850,7 @@ class db(object):
 				whereclause, order_by='groups.name, hosts.id' )
 		for d in data:
 			if d['expired']:
-				print 'WARNING: host %s has expired from group %s' % (d['hosts.name'],d['groups.name'],)
+				print 'WARNING: host %s (%s) has expired from group %s' % (d['hosts.name'],d['hosts.host'],d['groups.name'],)
 				expired_records=True
 			sets.add(d['groups.name'],d['hosts.host'],d['hosts.host_end'])
 		if expired_records and not allow_expired:
