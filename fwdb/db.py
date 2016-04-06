@@ -422,7 +422,7 @@ class db(object):
 		raise Exception('FIXME: Invalid port')
 	def get_rules( self, host=None, port=None, src=None, sport=None, dst=None, dport=None, chain=None, id=None,
 			iptables='iptables', ipt_restore=False, table=False, target=None, andwhere=None, columns=None,fw_id=None,
-			expired=None, show_usage=False, enabled=None, append_default_columns=False, asdict=False):
+			expired=None, show_usage=False, enabled=None, append_default_columns=False, asdict=False, created_for=False):
 		where_items = []
 		if ipt_restore:
 			use_fmt = self.rule_restore_fmt
@@ -479,6 +479,9 @@ class db(object):
 			# FIXME: do we need to do more sanity checking on interfaces?
 			where_items.append('(if_in.firewall_id = %s or rules.if_in is NULL)' % fw_id)
 			where_items.append('(if_out.firewall_id = %s or rules.if_out is NULL)' % fw_id)
+		if created_for:
+			created_for = int(created_for)
+			where_items.append('(rules.created_for = %i)' % created_for)
 		if andwhere:
 			where_items.append( andwhere )
 			
